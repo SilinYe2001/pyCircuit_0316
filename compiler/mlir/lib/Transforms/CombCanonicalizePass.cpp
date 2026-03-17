@@ -2,6 +2,7 @@
 
 #include "pyc/Dialect/PYC/PYCOps.h"
 
+#include "llvm/Config/llvm-config.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -262,8 +263,12 @@ struct CombCanonicalizePass : public PassWrapper<CombCanonicalizePass, Operation
     patterns.add<MuxSameSelSimplify, MuxI1ToLogic, AndBasicSimplify, OrBasicSimplify, OrAndXorFactor>(f.getContext());
 
     GreedyRewriteConfig cfg;
+#if LLVM_VERSION_MAJOR >= 19
     cfg.enableFolding();
     if (failed(applyPatternsGreedily(f, std::move(patterns), cfg)))
+#else
+    if (failed(applyPatternsAndFoldGreedily(f, std::move(patterns), cfg)))
+#endif
       signalPassFailure();
   }
 };

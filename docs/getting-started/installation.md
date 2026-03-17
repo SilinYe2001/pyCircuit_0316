@@ -19,16 +19,25 @@ This guide covers setting up the pyCircuit development environment.
 # Update package lists
 sudo apt-get update
 
-# Install build tools
-sudo apt-get install -y cmake ninja-build python3 python3-pip clang
+# Install build tools and Python venv support
+sudo apt-get install -y cmake ninja-build python3 python3-pip python3-venv clang
 
 # Install LLVM/MLIR (Ubuntu 22.04+)
-sudo apt-get install -y llvm-dev mlir-tools libmlir-dev
+# Note: On Ubuntu, LLVM/MLIR packages use versioned names.
+# Replace "18" below with the LLVM version available on your system
+# (run `apt-cache search mlir-.*-tools` to discover available versions).
+sudo apt-get install -y llvm-18-dev mlir-18-tools libmlir-18-dev
 
 # Verify installation
-llvm-config --version
-mlir-opt --version
+llvm-config-18 --version
+mlir-opt-18 --version
 ```
+
+> **Note (Ubuntu 24.04+):** The unversioned packages `llvm-dev`, `mlir-tools`,
+> and `libmlir-dev` may not be available. Always use the versioned package names
+> (e.g. `llvm-18-dev`, `mlir-18-tools`, `libmlir-18-dev`). If your system
+> provides `llvm-config` (unversioned symlink), you can use that instead of
+> `llvm-config-18`.
 
 ### macOS
 
@@ -65,8 +74,9 @@ cmake -G Ninja -S . -B build \
   -DLLVM_DIR="$LLVM_DIR" \
   -DMLIR_DIR="$MLIR_DIR"
 
-# Build the compiler
-ninja -C build pycc pyc-opt
+# Build the compiler (pycc only; pyc-opt is optional and may not build
+# on all systems due to MLIRRegisterAllPasses availability)
+ninja -C build pycc
 
 # Verify the build
 ./build/bin/pycc --version
@@ -82,23 +92,36 @@ bash flows/scripts/pyc build
 ## Install Python Package
 
 ```bash
+# Create and activate a Python virtual environment
+# (required on Ubuntu 24.04+ due to PEP 668 externally-managed environments)
+python3 -m venv .venv
+source .venv/bin/activate
+
 # Install pycircuit in development mode
 pip install -e .
 
 # Verify installation
-python -c "import pycircuit; print(pycircuit.__version__)"
+python -c "import pycircuit; print('pycircuit imported successfully')"
 ```
+
+> **Note:** On Ubuntu 24.04+, running `pip install` outside of a virtual
+> environment will fail with an `externally-managed-environment` error.
+> Always create a venv first as shown above.
 
 ## Verify Your Setup
 
 ```bash
-# Run the smoke test
-bash flows/scripts/run_examples.sh
+# Make sure the venv is activated
+source .venv/bin/activate
 
-# Should output something like:
-# Compiling counter... OK
-# Compiling calculator... OK
-# Compiling fifo_loopback... OK
+# Quick compiler smoke test (emit + compile a single example)
+PYTHONPATH="$(pwd)/compiler/frontend" \
+  python3 -m pycircuit.cli emit designs/examples/counter/counter.py -o /tmp/counter.pyc
+./build/bin/pycc /tmp/counter.pyc --emit=cpp -cpp /tmp/counter.cpp
+# Should print stats and exit 0
+
+# Full smoke test (runs all examples + API hygiene checks)
+bash flows/scripts/run_examples.sh
 ```
 
 ## Troubleshooting
@@ -138,6 +161,16 @@ Clean and rebuild:
 ```bash
 rm -rf build
 cmake -G Ninja -S . -B build ...
-ninja -C build clean
 ninja -C build pycc
 ```
+
+### LLVM Duplicate CommandLine Option Crash
+
+If `pycc` crashes at startup with `Option 'debug-counter' registered more than
+once!`, the binary is linking both static LLVM component libraries and the
+shared `libLLVM.so`, causing duplicate symbol registration.
+
+The project's CMakeLists.txt automatically detects and links against the shared
+`MLIR` / `LLVM` libraries when available (Ubuntu system packages). If you still
+hit this issue, ensure `libmlir-<ver>-dev` is installed (it provides
+`libMLIR.so`) and re-run the CMake configure step from a clean build directory.

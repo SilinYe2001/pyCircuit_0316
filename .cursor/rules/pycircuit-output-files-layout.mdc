@@ -1,0 +1,13 @@
+---
+description: Require pyCircuit/pycc/Verilog output layout per project skill when touching artifact paths
+alwaysApply: true
+---
+
+# pyCircuit output files layout
+
+When **creating, moving, or path-referencing** pyCircuit `emit` / `pycc` outputs, Verilator (or other) simulation artifacts, batch build trees, or shell/Python drivers that write under the repo:
+
+1. **Read and follow** **[`.cursor/skills/pycircuit-output-files/SKILL.md`](../skills/pycircuit-output-files/SKILL.md)** for Level 1–3 layout, `PYC_OUTPUT_ROOT`, and `verification/` vs `compile/` vs `logs/`.
+2. For full prose and examples, use **`docs/sub_agent_docs/output_files_management.md`** as the canonical document.
+
+Do not introduce new default paths that drop generated `*.v`, `obj_*`, or VCDs next to DUT **source** unless the user explicitly opts out of this layout.

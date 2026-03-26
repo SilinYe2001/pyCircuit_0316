@@ -1,0 +1,20 @@
+---
+description: Require planner review before execution
+alwaysApply: true
+---
+
+# ASIC Planner Review Gate
+
+When using the `asic-arch-master-planner` subagent:
+
+- First produce the project plan only.
+- Present the plan for user review before any implementation or follow-on execution.
+- Stop after returning the plan.
+- Do not continue automatically.
+- Continue only if the user explicitly asks to proceed.
+
+**Same gate for verification planning:** Do not invoke **`asic-verification-mastermind` in MODE 1** (structured test plan from architecture / module spec) until the user has **reviewed and approved** the architecture—the same threshold as starting **`pycircuit-implementation-engineer`**. After approval, MODE 1 and implementation may proceed in parallel.
+
+**Verification execution after DUT code:** Build/sim, TB iteration, and **`asic-verification-mastermind` MODE 2** (log-driven debug) are expected **after** DUT implementation and a successful compile path exist, unless the user explicitly scopes work to TB-only scaffold or similar.
+
+If there is any ambiguity, default to waiting for user approval after the planning output.

@@ -1,0 +1,11 @@
+---
+description: List repo-relative paths for files written in ASIC workflow
+alwaysApply: true
+---
+
+# Artifact path disclosure
+
+Whenever you **create or update** files in this workspace as part of the ASIC / pyCircuit workflow (architecture plans, verification docs, design notes, DUT source, generated summaries, etc.), end the response with a **Written artifacts** section (or equivalent) listing **repo-relative** paths—directory and filename for each file.
+
+- If nothing was written (chat-only), state that explicitly (e.g. **`Written artifacts: none`**).
+- Applies to the main agent and to behavior aligned with **`asic-arch-master-planner`**, **`asic-verification-mastermind`**, and **`pycircuit-implementation-engineer`**.

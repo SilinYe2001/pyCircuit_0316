@@ -910,12 +910,12 @@ int main(int argc, char **argv) {
     return 1;
   }
   if (hasDirectCpp) {
-    emitKind = "cpp";
-    outputFilename = directCppOut;
+    emitKind.setValue("cpp");
+    outputFilename.setValue(directCppOut);
   }
   if (hasDirectVerilog) {
-    emitKind = "verilog";
-    outputFilename = directVerilogOut;
+    emitKind.setValue("verilog");
+    outputFilename.setValue(directVerilogOut);
   }
   if ((hasDirectCpp || hasDirectVerilog) && !outDir.empty()) {
     llvm::errs() << "error: direct output mode (-cpp/-verilog) cannot be combined with --out-dir\n";

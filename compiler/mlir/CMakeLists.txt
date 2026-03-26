@@ -60,11 +60,15 @@ target_include_directories(pyc_dialect PUBLIC
   "${PYC_SOURCE_DIR}/include"
   "${PYC_BINARY_DIR}/include"
 )
-target_link_libraries(pyc_dialect PUBLIC
-  MLIRIR
-  MLIRSupport
-  LLVMSupport
-)
+if(TARGET MLIR AND TARGET LLVM)
+  set(PYC_USE_SHARED_LIBS ON)
+endif()
+
+if(PYC_USE_SHARED_LIBS)
+  target_link_libraries(pyc_dialect PUBLIC MLIR LLVM)
+else()
+  target_link_libraries(pyc_dialect PUBLIC MLIRIR MLIRSupport LLVMSupport)
+endif()
 
 add_library(pyc_transforms
   lib/Transforms/CheckFrontendContractPass.cpp
@@ -88,13 +92,17 @@ target_include_directories(pyc_transforms PUBLIC
   "${PYC_SOURCE_DIR}/include"
   "${PYC_BINARY_DIR}/include"
 )
-target_link_libraries(pyc_transforms PUBLIC
-  pyc_dialect
-  MLIRArithDialect
-  MLIRFuncDialect
-  MLIRPass
-  MLIRSCFDialect
-)
+if(PYC_USE_SHARED_LIBS)
+  target_link_libraries(pyc_transforms PUBLIC pyc_dialect MLIR LLVM)
+else()
+  target_link_libraries(pyc_transforms PUBLIC
+    pyc_dialect
+    MLIRArithDialect
+    MLIRFuncDialect
+    MLIRPass
+    MLIRSCFDialect
+  )
+endif()
 
 # pyc-opt requires MLIRRegisterAllPasses; Homebrew LLVM may not export it.
 # Build script uses "ninja pycc" only so pyc-opt is optional; if you run
@@ -129,20 +137,24 @@ target_include_directories(pycc PRIVATE
   "${PYC_SOURCE_DIR}/include"
   "${PYC_BINARY_DIR}/include"
 )
-target_link_libraries(pycc PRIVATE
-  pyc_dialect
-  pyc_transforms
-  MLIRArithDialect
-  MLIRIR
-  MLIRSupport
-  MLIRFuncDialect
-  MLIRFuncInlinerExtension
-  MLIRParser
-  MLIRPass
-  MLIRSCFDialect
-  MLIRTransforms
-  LLVMSupport
-)
+if(PYC_USE_SHARED_LIBS)
+  target_link_libraries(pycc PRIVATE pyc_dialect pyc_transforms MLIR LLVM)
+else()
+  target_link_libraries(pycc PRIVATE
+    pyc_dialect
+    pyc_transforms
+    MLIRArithDialect
+    MLIRIR
+    MLIRSupport
+    MLIRFuncDialect
+    MLIRFuncInlinerExtension
+    MLIRParser
+    MLIRPass
+    MLIRSCFDialect
+    MLIRTransforms
+    LLVMSupport
+  )
+endif()
 
 # Install binaries for packaging / reuse.
 set(PYC_INSTALL_TARGETS pycc)

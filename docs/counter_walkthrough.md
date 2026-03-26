@@ -254,6 +254,32 @@ Expected output:
 | `--jobs N` | Parallel compilation jobs |
 | `--run-verilator` | Also execute the Verilator binary after build |
 
+### Verilator build + run
+
+To run the same counter testbench through Verilator in one command:
+
+```bash
+source .venv/bin/activate
+
+pycircuit build designs/examples/counter/tb_counter.py \
+    --out-dir counter_sim_verilator_run \
+    --target verilator \
+    --profile release \
+    --run-verilator
+```
+
+Expected result:
+
+```text
+...
+OK
+- /path/to/counter_sim_verilator_run/tb/tb_counter.sv:...: Verilog $finish
+/path/to/counter_sim_verilator_run/project_manifest.json
+```
+
+This produces a Verilator-built binary under `counter_sim_verilator_run/verilator_build/`
+and runs it immediately after the build completes.
+
 ---
 
 ## Step 4: Run the Simulation
@@ -270,6 +296,15 @@ OK
 
 The simulation prints `OK` to stderr and exits with code 0. This means all
 `t.expect(...)` assertions in the testbench passed.
+
+### Run the generated Verilator binary manually
+
+If you built with `--target verilator` without `--run-verilator`, or you want to
+re-run the generated simulator directly:
+
+```bash
+./counter_sim_verilator_run/verilator_build/Vtb_counter
+```
 
 ### Fail result
 
@@ -297,7 +332,7 @@ The program exits with code 1.
 
 ### 5a. VCD Waveform
 
-The simulation automatically writes a VCD trace file:
+The C++ simulation automatically writes a VCD trace file:
 
 ```
 tb_counter/tb_counter.vcd
@@ -322,14 +357,29 @@ You will see:
 | 5         | tog | 0   | 0      | 0x00  |
 | 6+        | tog | 0   | 1      | 0x01, 0x02, ... |
 
-### 5b. Redirect VCD output
+### 5b. Verilator VCD waveform
+
+The Verilator flow writes its trace to a separate file so it does not collide
+with the C++ backend output:
+
+```text
+counter_sim_verilator_run/verilator_tb_counter.vcd
+```
+
+Open it with GTKWave:
+
+```bash
+gtkwave counter_sim_verilator_run/verilator_tb_counter.vcd
+```
+
+### 5c. Redirect VCD output
 
 ```bash
 PYC_TRACE_DIR=/tmp/my_traces ./counter_sim_out/cpp_build/build/pyc_tb
 # VCD written to /tmp/my_traces/tb_counter/tb_counter.vcd
 ```
 
-### 5c. Compiler statistics
+### 5d. Compiler statistics
 
 ```bash
 cat counter_sim_out/device/cpp/counter/compile_stats.json
@@ -338,7 +388,7 @@ cat counter_sim_out/device/cpp/counter/compile_stats.json
 Shows register count, memory count, maximum combinational logic depth, and
 timing slack.
 
-### 5d. Project manifest
+### 5e. Project manifest
 
 ```bash
 cat counter_sim_out/project_manifest.json
@@ -386,8 +436,14 @@ pycircuit build designs/examples/counter/tb_counter.py \
 
 ./counter_sim_out/cpp_build/build/pyc_tb
 
+# Verilator build + run
+pycircuit build designs/examples/counter/tb_counter.py \
+    --out-dir counter_sim_verilator_run \
+    --target verilator --profile release --run-verilator
+
 # View waveform
 gtkwave tb_counter/tb_counter.vcd
+gtkwave counter_sim_verilator_run/verilator_tb_counter.vcd
 
 # Run all examples (CI-style)
 bash flows/scripts/run_sims.sh

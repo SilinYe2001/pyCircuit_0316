@@ -53,6 +53,7 @@ def build_issue_queue(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "iq",
     entries: int = ISSUE_QUEUE_SIZE,
     enq_ports: int = 2,
     issue_ports: int = 2,
@@ -60,8 +61,12 @@ def build_issue_queue(
     ptag_w: int = PTAG_WIDTH_INT,
     rob_idx_w: int = ROB_IDX_WIDTH,
     fu_type_width: int = FU_TYPE_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """IssueQueue: age-matrix based issue queue with wakeup and selection."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     idx_w = max(1, (entries - 1).bit_length())
     cnt_w = max(1, entries.bit_length())
@@ -70,30 +75,32 @@ def build_issue_queue(
     # Cycle 0 — Inputs
     # ================================================================
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
+
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
     # Enqueue interface (from dispatch)
-    enq_valid = [cas(domain, m.input(f"enq_valid_{i}", width=1), cycle=0)
+    enq_valid = [cas(domain, m.input(f"{prefix}_enq_valid_{i}", width=1), cycle=0)
                  for i in range(enq_ports)]
-    enq_pdest = [cas(domain, m.input(f"enq_pdest_{i}", width=ptag_w), cycle=0)
+    enq_pdest = [cas(domain, m.input(f"{prefix}_enq_pdest_{i}", width=ptag_w), cycle=0)
                  for i in range(enq_ports)]
-    enq_psrc1 = [cas(domain, m.input(f"enq_psrc1_{i}", width=ptag_w), cycle=0)
+    enq_psrc1 = [cas(domain, m.input(f"{prefix}_enq_psrc1_{i}", width=ptag_w), cycle=0)
                  for i in range(enq_ports)]
-    enq_psrc2 = [cas(domain, m.input(f"enq_psrc2_{i}", width=ptag_w), cycle=0)
+    enq_psrc2 = [cas(domain, m.input(f"{prefix}_enq_psrc2_{i}", width=ptag_w), cycle=0)
                  for i in range(enq_ports)]
-    enq_src1_ready = [cas(domain, m.input(f"enq_src1_ready_{i}", width=1), cycle=0)
+    enq_src1_ready = [cas(domain, m.input(f"{prefix}_enq_src1_ready_{i}", width=1), cycle=0)
                       for i in range(enq_ports)]
-    enq_src2_ready = [cas(domain, m.input(f"enq_src2_ready_{i}", width=1), cycle=0)
+    enq_src2_ready = [cas(domain, m.input(f"{prefix}_enq_src2_ready_{i}", width=1), cycle=0)
                       for i in range(enq_ports)]
-    enq_rob_idx = [cas(domain, m.input(f"enq_rob_idx_{i}", width=rob_idx_w), cycle=0)
+    enq_rob_idx = [cas(domain, m.input(f"{prefix}_enq_rob_idx_{i}", width=rob_idx_w), cycle=0)
                    for i in range(enq_ports)]
-    enq_fu_type = [cas(domain, m.input(f"enq_fu_type_{i}", width=fu_type_width), cycle=0)
+    enq_fu_type = [cas(domain, m.input(f"{prefix}_enq_fu_type_{i}", width=fu_type_width), cycle=0)
                    for i in range(enq_ports)]
 
     # Writeback / wakeup bus (from execution units)
-    wb_valid = [cas(domain, m.input(f"wb_valid_{i}", width=1), cycle=0)
+    wb_valid = [cas(domain, m.input(f"{prefix}_wb_valid_{i}", width=1), cycle=0)
                 for i in range(wb_ports)]
-    wb_pdest = [cas(domain, m.input(f"wb_pdest_{i}", width=ptag_w), cycle=0)
+    wb_pdest = [cas(domain, m.input(f"{prefix}_wb_pdest_{i}", width=ptag_w), cycle=0)
                 for i in range(wb_ports)]
 
     # ── Constants ────────────────────────────────────────────────
@@ -103,27 +110,27 @@ def build_issue_queue(
     ZERO_PTAG = cas(domain, m.const(0, width=ptag_w), cycle=0)
 
     # ── Entry storage (state registers) ──────────────────────────
-    ent_valid = [domain.state(width=1, reset_value=0, name=f"ev_{i}")
+    ent_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_ev_{i}")
                  for i in range(entries)]
-    ent_pdest = [domain.state(width=ptag_w, reset_value=0, name=f"epd_{i}")
+    ent_pdest = [domain.state(width=ptag_w, reset_value=0, name=f"{prefix}_epd_{i}")
                  for i in range(entries)]
-    ent_psrc1 = [domain.state(width=ptag_w, reset_value=0, name=f"eps1_{i}")
+    ent_psrc1 = [domain.state(width=ptag_w, reset_value=0, name=f"{prefix}_eps1_{i}")
                  for i in range(entries)]
-    ent_psrc2 = [domain.state(width=ptag_w, reset_value=0, name=f"eps2_{i}")
+    ent_psrc2 = [domain.state(width=ptag_w, reset_value=0, name=f"{prefix}_eps2_{i}")
                  for i in range(entries)]
-    ent_s1rdy = [domain.state(width=1, reset_value=0, name=f"er1_{i}")
+    ent_s1rdy = [domain.state(width=1, reset_value=0, name=f"{prefix}_er1_{i}")
                  for i in range(entries)]
-    ent_s2rdy = [domain.state(width=1, reset_value=0, name=f"er2_{i}")
+    ent_s2rdy = [domain.state(width=1, reset_value=0, name=f"{prefix}_er2_{i}")
                  for i in range(entries)]
-    ent_rob_idx = [domain.state(width=rob_idx_w, reset_value=0, name=f"erob_{i}")
+    ent_rob_idx = [domain.state(width=rob_idx_w, reset_value=0, name=f"{prefix}_erob_{i}")
                    for i in range(entries)]
-    ent_fu_type = [domain.state(width=fu_type_width, reset_value=0, name=f"efu_{i}")
+    ent_fu_type = [domain.state(width=fu_type_width, reset_value=0, name=f"{prefix}_efu_{i}")
                    for i in range(entries)]
 
     # Age matrix: age[i][j] = 1 means entry i is older than entry j
     # Triangular — only store i < j pairs; age[i][j] for i >= j is implicit.
     age_matrix = [
-        [domain.state(width=1, reset_value=0, name=f"age_{i}_{j}")
+        [domain.state(width=1, reset_value=0, name=f"{prefix}_age_{i}_{j}")
          for j in range(entries)]
         for i in range(entries)
     ]
@@ -212,10 +219,10 @@ def build_issue_queue(
             sel_fu = mux(cand[i], cas(domain, ent_fu_type[i].wire, cycle=0), sel_fu)
 
         issue_valid = sel_valid & (~flush)
-        m.output(f"issue_valid_{p}", issue_valid.wire)
-        m.output(f"issue_pdest_{p}", sel_pdest.wire)
-        m.output(f"issue_rob_idx_{p}", sel_rob.wire)
-        m.output(f"issue_fu_type_{p}", sel_fu.wire)
+        m.output(f"{prefix}_issue_valid_{p}", issue_valid.wire)
+        m.output(f"{prefix}_issue_pdest_{p}", sel_pdest.wire)
+        m.output(f"{prefix}_issue_rob_idx_{p}", sel_rob.wire)
+        m.output(f"{prefix}_issue_fu_type_{p}", sel_fu.wire)
 
         # Mark as issued for next port's masking
         for i in range(entries):
@@ -252,8 +259,9 @@ def build_issue_queue(
 
     enq_cnt_const = cas(domain, m.const(enq_ports, width=cnt_w), cycle=0)
     has_room = ~(free_cnt < enq_cnt_const)
-    m.output("ready", (has_room & (~flush)).wire)
-    m.output("free_count", free_cnt.wire)
+    m.output(f"{prefix}_ready", (has_room & (~flush)).wire)
+    m.output(f"{prefix}_free_count", free_cnt.wire)
+    _out["free_count"] = free_cnt
 
     # ── domain.next() → Cycle 1: state updates ──────────────────
     domain.next()
@@ -303,6 +311,7 @@ def build_issue_queue(
     # ── Flush: clear all entries ─────────────────────────────────
     for i in range(entries):
         ent_valid[i].set(ZERO_1, when=flush)
+    return _out
 
 
 build_issue_queue.__pycircuit_name__ = "issue_queue"

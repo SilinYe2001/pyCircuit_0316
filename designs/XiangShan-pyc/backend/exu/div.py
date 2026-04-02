@@ -60,21 +60,32 @@ def build_div(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "div",
     data_width: int = XLEN,
     latency: int = DIV_LATENCY,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Divider: multi-cycle FSM-based division unit."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     op_w = DIV_OP_WIDTH
     cnt_w = max(1, latency.bit_length())
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
-    in_valid = cas(domain, m.input("in_valid", width=1), cycle=0)
-    src1 = cas(domain, m.input("src1", width=data_width), cycle=0)
-    src2 = cas(domain, m.input("src2", width=data_width), cycle=0)
-    div_op = cas(domain, m.input("div_op", width=op_w), cycle=0)
-    out_ready = cas(domain, m.input("out_ready", width=1), cycle=0)
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    in_valid = (_in["in_valid"] if "in_valid" in _in else
+        cas(domain, m.input(f"{prefix}_in_valid", width=1), cycle=0))
+    src1 = (_in["src1"] if "src1" in _in else
+        cas(domain, m.input(f"{prefix}_src1", width=data_width), cycle=0))
+    src2 = (_in["src2"] if "src2" in _in else
+        cas(domain, m.input(f"{prefix}_src2", width=data_width), cycle=0))
+    div_op = (_in["div_op"] if "div_op" in _in else
+        cas(domain, m.input(f"{prefix}_div_op", width=op_w), cycle=0))
+    out_ready = (_in["out_ready"] if "out_ready" in _in else
+        cas(domain, m.input(f"{prefix}_out_ready", width=1), cycle=0))
+    flush = (_in["flush"] if "flush" in _in else
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
     def _const(val, w=data_width):
         return cas(domain, m.const(val, width=w), cycle=0)
@@ -86,12 +97,12 @@ def build_div(
     ONE_1 = cas(domain, m.const(1, width=1), cycle=0)
 
     # ── State registers ──────────────────────────────────────────
-    fsm_state = domain.state(width=STATE_WIDTH, reset_value=ST_IDLE, name="div_fsm")
-    counter = domain.state(width=cnt_w, reset_value=0, name="div_cnt")
-    reg_src1 = domain.state(width=data_width, reset_value=0, name="div_s1")
-    reg_src2 = domain.state(width=data_width, reset_value=0, name="div_s2")
-    reg_op = domain.state(width=op_w, reset_value=0, name="div_op_r")
-    reg_result = domain.state(width=data_width, reset_value=0, name="div_res")
+    fsm_state = domain.state(width=STATE_WIDTH, reset_value=ST_IDLE, name=f"{prefix}_div_fsm")
+    counter = domain.state(width=cnt_w, reset_value=0, name=f"{prefix}_div_cnt")
+    reg_src1 = domain.state(width=data_width, reset_value=0, name=f"{prefix}_div_s1")
+    reg_src2 = domain.state(width=data_width, reset_value=0, name=f"{prefix}_div_s2")
+    reg_op = domain.state(width=op_w, reset_value=0, name=f"{prefix}_div_op_r")
+    reg_result = domain.state(width=data_width, reset_value=0, name=f"{prefix}_div_res")
 
     # ── Read current state ───────────────────────────────────────
     cur_state = cas(domain, fsm_state.wire, cycle=0)
@@ -132,9 +143,12 @@ def build_div(
     out_valid = is_done & (~flush)
     in_ready = is_idle & (~flush)
 
-    m.output("out_valid", out_valid.wire)
-    m.output("in_ready", in_ready.wire)
-    m.output("result", cur_result.wire)
+    m.output(f"{prefix}_out_valid", out_valid.wire)
+    _out["out_valid"] = out_valid
+    m.output(f"{prefix}_in_ready", in_ready.wire)
+    _out["in_ready"] = in_ready
+    m.output(f"{prefix}_result", cur_result.wire)
+    _out["result"] = cur_result
 
     # ── Cycle 1: State updates ───────────────────────────────────
     domain.next()
@@ -164,6 +178,7 @@ def build_div(
     # Flush: return to IDLE from any state
     fsm_state.set(cas(domain, m.const(ST_IDLE, width=STATE_WIDTH), cycle=0), when=flush)
     counter.set(cas(domain, m.const(0, width=cnt_w), cycle=0), when=flush)
+    return _out
 
 
 build_div.__pycircuit_name__ = "div"

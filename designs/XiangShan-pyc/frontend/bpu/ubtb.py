@@ -58,6 +58,7 @@ def build_ubtb(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "ubtb",
     entries: int = UBTB_NUM_ENTRIES,
     tag_width: int = UBTB_TAG_WIDTH,
     target_width: int = UBTB_TARGET_WIDTH,
@@ -65,23 +66,37 @@ def build_ubtb(
     pc_width: int = PC_WIDTH,
     cfi_pos_width: int = CFI_POSITION_WIDTH,
     attr_width: int = ATTR_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """uBTB: full-associative micro branch target buffer with single-cycle lookup."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
     idx_w = max(1, math.ceil(math.log2(entries))) if entries > 1 else 1
     useful_max = (1 << useful_cnt_width) - 1
     useful_mid = 1 << (useful_cnt_width - 1)
 
     # ── Cycle 0 (s0): Inputs ─────────────────────────────────────────
-    s0_fire = cas(domain, m.input("s0_fire", width=1), cycle=0)
-    s0_pc = cas(domain, m.input("s0_pc", width=pc_width), cycle=0)
-    enable = cas(domain, m.input("enable", width=1), cycle=0)
+    s0_fire = (_in["s0_fire"] if "s0_fire" in _in else
+        cas(domain, m.input(f"{prefix}_s0_fire", width=1), cycle=0))
+    s0_pc = (_in["s0_pc"] if "s0_pc" in _in else
+        cas(domain, m.input(f"{prefix}_s0_pc", width=pc_width), cycle=0))
+    enable = (_in["enable"] if "enable" in _in else
+        cas(domain, m.input(f"{prefix}_enable", width=1), cycle=0))
 
-    train_valid = cas(domain, m.input("train_valid", width=1), cycle=0)
-    train_pc = cas(domain, m.input("train_pc", width=pc_width), cycle=0)
-    train_target = cas(domain, m.input("train_target", width=pc_width), cycle=0)
-    train_taken = cas(domain, m.input("train_taken", width=1), cycle=0)
-    train_cfi_pos = cas(domain, m.input("train_cfi_pos", width=cfi_pos_width), cycle=0)
-    train_attr = cas(domain, m.input("train_attr", width=attr_width), cycle=0)
+    train_valid = (_in["train_valid"] if "train_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_train_valid", width=1), cycle=0))
+    train_pc = (_in["train_pc"] if "train_pc" in _in else
+        cas(domain, m.input(f"{prefix}_train_pc", width=pc_width), cycle=0))
+    train_target = (_in["train_target"] if "train_target" in _in else
+        cas(domain, m.input(f"{prefix}_train_target", width=pc_width), cycle=0))
+    train_taken = (_in["train_taken"] if "train_taken" in _in else
+        cas(domain, m.input(f"{prefix}_train_taken", width=1), cycle=0))
+    train_cfi_pos = (_in["train_cfi_pos"] if "train_cfi_pos" in _in else
+        cas(domain, m.input(f"{prefix}_train_cfi_pos", width=cfi_pos_width), cycle=0))
+    train_attr = (_in["train_attr"] if "train_attr" in _in else
+        cas(domain, m.input(f"{prefix}_train_attr", width=attr_width), cycle=0))
 
     zero1 = cas(domain, m.const(0, width=1), cycle=0)
     one1 = cas(domain, m.const(1, width=1), cycle=0)
@@ -96,12 +111,12 @@ def build_ubtb(
     s0_tag = s0_pc[1 : 1 + tag_width]
 
     # ── Entry storage ─────────────────────────────────────────────────
-    ent_valid_r = [domain.state(width=1, reset_value=0, name=f"ev_{i}") for i in range(entries)]
-    ent_tag_r = [domain.state(width=tag_width, reset_value=0, name=f"et_{i}") for i in range(entries)]
-    ent_target_r = [domain.state(width=target_width, reset_value=0, name=f"etar_{i}") for i in range(entries)]
-    ent_cfi_pos_r = [domain.state(width=cfi_pos_width, reset_value=0, name=f"epos_{i}") for i in range(entries)]
-    ent_attr_r = [domain.state(width=attr_width, reset_value=0, name=f"eattr_{i}") for i in range(entries)]
-    ent_useful_r = [domain.state(width=useful_cnt_width, reset_value=0, name=f"eu_{i}") for i in range(entries)]
+    ent_valid_r = [domain.state(width=1, reset_value=0, name=f"{prefix}_ev_{i}") for i in range(entries)]
+    ent_tag_r = [domain.state(width=tag_width, reset_value=0, name=f"{prefix}_et_{i}") for i in range(entries)]
+    ent_target_r = [domain.state(width=target_width, reset_value=0, name=f"{prefix}_etar_{i}") for i in range(entries)]
+    ent_cfi_pos_r = [domain.state(width=cfi_pos_width, reset_value=0, name=f"{prefix}_epos_{i}") for i in range(entries)]
+    ent_attr_r = [domain.state(width=attr_width, reset_value=0, name=f"{prefix}_eattr_{i}") for i in range(entries)]
+    ent_useful_r = [domain.state(width=useful_cnt_width, reset_value=0, name=f"{prefix}_eu_{i}") for i in range(entries)]
 
     # Read all entries as combinational signals
     ev = [_r(domain, ent_valid_r[i]) for i in range(entries)]
@@ -145,11 +160,16 @@ def build_ubtb(
 
     # ── Prediction outputs ────────────────────────────────────────────
     pred_valid = s0_hit & s0_fire & enable
-    m.output("pred_valid", pred_valid.wire)
-    m.output("pred_taken", pred_valid.wire)
-    m.output("pred_target", s0_full_target.wire)
-    m.output("pred_cfi_pos", s0_hit_cfi.wire)
-    m.output("pred_attr", s0_hit_attr.wire)
+    m.output(f"{prefix}_pred_valid", pred_valid.wire)
+    _out["pred_valid"] = pred_valid
+    m.output(f"{prefix}_pred_taken", pred_valid.wire)
+    _out["pred_taken"] = pred_valid
+    m.output(f"{prefix}_pred_target", s0_full_target.wire)
+    _out["pred_target"] = s0_full_target
+    m.output(f"{prefix}_pred_cfi_pos", s0_hit_cfi.wire)
+    _out["pred_cfi_pos"] = s0_hit_cfi
+    m.output(f"{prefix}_pred_attr", s0_hit_attr.wire)
+    _out["pred_attr"] = s0_hit_attr
 
     # ── Training: tag / target extraction ─────────────────────────────
     t0_tag = train_pc[1 : 1 + tag_width]
@@ -217,6 +237,7 @@ def build_ubtb(
         ent_cfi_pos_r[i].set(mux(we, train_cfi_pos, epos[i]), when=we)
         ent_attr_r[i].set(mux(we, train_attr, eattr[i]), when=we)
         ent_useful_r[i].set(mux(we, new_useful, eu[i]), when=we)
+    return _out
 
 
 build_ubtb.__pycircuit_name__ = "ubtb"

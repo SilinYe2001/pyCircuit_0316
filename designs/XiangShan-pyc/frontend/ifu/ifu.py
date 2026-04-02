@@ -52,27 +52,40 @@ def build_ifu(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "ifu",
     fetch_width: int = FETCH_WIDTH,
     pc_width: int = PC_WIDTH,
     cache_data_width: int = CACHE_DATA_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """IFU: 3-stage instruction fetch pipeline (FTQ → ICache → IBuffer)."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     num_w = max(1, (fetch_width).bit_length())
 
     # ── All inputs (declared at cycle 0) ──────────────────────────────
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
+
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
     # FTQ → IFU
-    ftq_valid = cas(domain, m.input("ftq_to_ifu_valid", width=1), cycle=0)
-    ftq_pc = cas(domain, m.input("ftq_to_ifu_pc", width=pc_width), cycle=0)
-    ftq_target = cas(domain, m.input("ftq_to_ifu_target", width=pc_width), cycle=0)
+    ftq_valid = (_in["ftq_to_ifu_valid"] if "ftq_to_ifu_valid" in _in else
+        cas(domain, m.input(f"{prefix}_ftq_to_ifu_valid", width=1), cycle=0))
+    ftq_pc = (_in["ftq_to_ifu_pc"] if "ftq_to_ifu_pc" in _in else
+        cas(domain, m.input(f"{prefix}_ftq_to_ifu_pc", width=pc_width), cycle=0))
+    ftq_target = (_in["ftq_to_ifu_target"] if "ftq_to_ifu_target" in _in else
+        cas(domain, m.input(f"{prefix}_ftq_to_ifu_target", width=pc_width), cycle=0))
 
     # ICache → IFU (response)
-    icache_resp_valid = cas(domain, m.input("icache_resp_valid", width=1), cycle=0)
-    icache_resp_data = cas(domain, m.input("icache_resp_data", width=cache_data_width), cycle=0)
-    icache_resp_hit = cas(domain, m.input("icache_resp_hit", width=1), cycle=0)
+    icache_resp_valid = (_in["icache_resp_valid"] if "icache_resp_valid" in _in else
+        cas(domain, m.input(f"{prefix}_icache_resp_valid", width=1), cycle=0))
+    icache_resp_data = (_in["icache_resp_data"] if "icache_resp_data" in _in else
+        cas(domain, m.input(f"{prefix}_icache_resp_data", width=cache_data_width), cycle=0))
+    icache_resp_hit = (_in["icache_resp_hit"] if "icache_resp_hit" in _in else
+        cas(domain, m.input(f"{prefix}_icache_resp_hit", width=1), cycle=0))
 
     # ================================================================
     # s0 — Accept FTQ fetch target, send ICache request
@@ -80,14 +93,16 @@ def build_ifu(
 
     s0_valid = ftq_valid & (~flush)
 
-    m.output("icache_req_valid", s0_valid.wire)
-    m.output("icache_req_vaddr", ftq_pc.wire)
-    m.output("ftq_to_ifu_ready", cas(domain, m.const(1, width=1), cycle=0).wire)
+    m.output(f"{prefix}_icache_req_valid", s0_valid.wire)
+    _out["icache_req_valid"] = s0_valid
+    m.output(f"{prefix}_icache_req_vaddr", ftq_pc.wire)
+    _out["icache_req_vaddr"] = ftq_pc
+    m.output(f"{prefix}_ftq_to_ifu_ready", cas(domain, m.const(1, width=1), cycle=0).wire)
 
     # Pipeline registers s0 → s1
-    s1_v_r = domain.cycle(s0_valid.wire, name="s1_v")
-    s1_pc_r = domain.cycle(ftq_pc.wire, name="s1_pc")
-    s1_tgt_r = domain.cycle(ftq_target.wire, name="s1_tgt")
+    s1_v_r = domain.cycle(s0_valid.wire, name=f"{prefix}_s1_v")
+    s1_pc_r = domain.cycle(ftq_pc.wire, name=f"{prefix}_s1_pc")
+    s1_tgt_r = domain.cycle(ftq_target.wire, name=f"{prefix}_s1_tgt")
 
     domain.next()  # ──────────────── s0 → s1 ────────────────
 
@@ -98,10 +113,10 @@ def build_ifu(
     s1_fire = s1_v_r & icache_resp_valid.wire & icache_resp_hit.wire & (~flush.wire)
 
     # Pipeline registers s1 → s2
-    s2_v_r = domain.cycle(s1_fire, name="s2_v")
-    s2_pc_r = domain.cycle(s1_pc_r, name="s2_pc")
-    s2_tgt_r = domain.cycle(s1_tgt_r, name="s2_tgt")
-    s2_data_r = domain.cycle(icache_resp_data.wire, name="s2_data")
+    s2_v_r = domain.cycle(s1_fire, name=f"{prefix}_s2_v")
+    s2_pc_r = domain.cycle(s1_pc_r, name=f"{prefix}_s2_pc")
+    s2_tgt_r = domain.cycle(s1_tgt_r, name=f"{prefix}_s2_tgt")
+    s2_data_r = domain.cycle(icache_resp_data.wire, name=f"{prefix}_s2_data")
 
     domain.next()  # ──────────────── s1 → s2 ────────────────
 
@@ -110,7 +125,8 @@ def build_ifu(
     # ================================================================
 
     out_valid = s2_v_r & (~flush.wire)
-    m.output("ifu_to_ibuf_valid", out_valid)
+    m.output(f"{prefix}_ifu_to_ibuf_valid", out_valid)
+    _out["ifu_to_ibuf_valid"] = cas(domain, out_valid, cycle=domain.cycle_index)
 
     for i in range(fetch_width):
         lo = i * PARCEL_WIDTH
@@ -143,17 +159,19 @@ def build_ifu(
         is_jalr = opcode == m.const(0x67, width=7)
         pred_is_br = is_br | is_jal | is_jalr
 
-        m.output(f"out_valid_{i}", out_valid)
-        m.output(f"out_inst_{i}", inst)
-        m.output(f"out_pc_{i}", slot_pc)
-        m.output(f"out_is_rvc_{i}", is_rvc)
-        m.output(f"out_is_br_{i}", pred_is_br)
+        m.output(f"{prefix}_out_valid_{i}", out_valid)
+        m.output(f"{prefix}_out_inst_{i}", inst)
+        m.output(f"{prefix}_out_pc_{i}", slot_pc)
+        m.output(f"{prefix}_out_is_rvc_{i}", is_rvc)
+        m.output(f"{prefix}_out_is_br_{i}", pred_is_br)
 
     out_num = out_valid.select(
         m.const(fetch_width, width=num_w),
         m.const(0, width=num_w),
     )
-    m.output("out_num", out_num)
+    m.output(f"{prefix}_out_num", out_num)
+    _out["out_num"] = cas(domain, out_num, cycle=domain.cycle_index)
+    return _out
 
 
 build_ifu.__pycircuit_name__ = "ifu"

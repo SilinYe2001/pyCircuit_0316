@@ -85,22 +85,30 @@ def build_decode(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "dec",
     decode_width: int = DECODE_WIDTH,
     pc_width: int = PC_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Decode: combinational RISC-V instruction decoder with registered output."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+
+    flush = (_in["flush"] if "flush" in _in else
+
+
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
     reg_out: dict[str, object] = {}
 
     # ── Cycle 0: combinational decode ─────────────────────────────────
 
     for i in range(decode_width):
-        in_valid  = cas(domain, m.input(f"in_valid_{i}", width=1), cycle=0)
-        in_inst   = cas(domain, m.input(f"in_inst_{i}", width=INST_WIDTH), cycle=0)
-        in_pc     = cas(domain, m.input(f"in_pc_{i}", width=pc_width), cycle=0)
-        in_is_rvc = cas(domain, m.input(f"in_is_rvc_{i}", width=1), cycle=0)
+        in_valid  = cas(domain, m.input(f"{prefix}_in_valid_{i}", width=1), cycle=0)
+        in_inst   = cas(domain, m.input(f"{prefix}_in_inst_{i}", width=INST_WIDTH), cycle=0)
+        in_pc     = cas(domain, m.input(f"{prefix}_in_pc_{i}", width=pc_width), cycle=0)
+        in_is_rvc = cas(domain, m.input(f"{prefix}_in_is_rvc_{i}", width=1), cycle=0)
 
         inst = in_inst.wire  # wire for downstream slicing
 
@@ -191,54 +199,55 @@ def build_decode(
 
         # ── Pipeline registers (cycle 0 → cycle 1) ──
         tag = f"d{i}"
-        reg_out[f"v_{i}"]          = domain.cycle(dec_valid.wire, name=f"{tag}_v")
-        reg_out[f"pc_{i}"]         = domain.cycle(in_pc.wire,     name=f"{tag}_pc")
-        reg_out[f"inst_{i}"]       = domain.cycle(inst,           name=f"{tag}_inst")
-        reg_out[f"rd_{i}"]         = domain.cycle(rd,             name=f"{tag}_rd")
-        reg_out[f"rs1_{i}"]        = domain.cycle(rs1,            name=f"{tag}_rs1")
-        reg_out[f"rs2_{i}"]        = domain.cycle(rs2,            name=f"{tag}_rs2")
-        reg_out[f"funct3_{i}"]     = domain.cycle(funct3,         name=f"{tag}_f3")
-        reg_out[f"funct7_{i}"]     = domain.cycle(funct7,         name=f"{tag}_f7")
-        reg_out[f"imm_{i}"]        = domain.cycle(imm,            name=f"{tag}_imm")
-        reg_out[f"alu_op_{i}"]     = domain.cycle(funct3,         name=f"{tag}_alu")
-        reg_out[f"is_branch_{i}"]  = domain.cycle(is_branch,      name=f"{tag}_br")
-        reg_out[f"is_jal_{i}"]     = domain.cycle(is_jal,         name=f"{tag}_jal")
-        reg_out[f"is_jalr_{i}"]    = domain.cycle(is_jalr,        name=f"{tag}_jalr")
-        reg_out[f"is_load_{i}"]    = domain.cycle(is_load,        name=f"{tag}_ld")
-        reg_out[f"is_store_{i}"]   = domain.cycle(is_store,       name=f"{tag}_st")
-        reg_out[f"use_imm_{i}"]    = domain.cycle(use_imm,        name=f"{tag}_uimm")
-        reg_out[f"rd_valid_{i}"]   = domain.cycle(rd_valid,       name=f"{tag}_rdv")
-        reg_out[f"rs1_valid_{i}"]  = domain.cycle(rs1_valid,      name=f"{tag}_r1v")
-        reg_out[f"rs2_valid_{i}"]  = domain.cycle(rs2_valid,      name=f"{tag}_r2v")
-        reg_out[f"is_fp_{i}"]      = domain.cycle(is_fp,          name=f"{tag}_fp")
-        reg_out[f"is_vec_{i}"]     = domain.cycle(is_vec,         name=f"{tag}_vec")
+        reg_out[f"v_{i}"]          = domain.cycle(dec_valid.wire, name=f"{prefix}_{tag}_v")
+        reg_out[f"pc_{i}"]         = domain.cycle(in_pc.wire,     name=f"{prefix}_{tag}_pc")
+        reg_out[f"inst_{i}"]       = domain.cycle(inst,           name=f"{prefix}_{tag}_inst")
+        reg_out[f"rd_{i}"]         = domain.cycle(rd,             name=f"{prefix}_{tag}_rd")
+        reg_out[f"rs1_{i}"]        = domain.cycle(rs1,            name=f"{prefix}_{tag}_rs1")
+        reg_out[f"rs2_{i}"]        = domain.cycle(rs2,            name=f"{prefix}_{tag}_rs2")
+        reg_out[f"funct3_{i}"]     = domain.cycle(funct3,         name=f"{prefix}_{tag}_f3")
+        reg_out[f"funct7_{i}"]     = domain.cycle(funct7,         name=f"{prefix}_{tag}_f7")
+        reg_out[f"imm_{i}"]        = domain.cycle(imm,            name=f"{prefix}_{tag}_imm")
+        reg_out[f"alu_op_{i}"]     = domain.cycle(funct3,         name=f"{prefix}_{tag}_alu")
+        reg_out[f"is_branch_{i}"]  = domain.cycle(is_branch,      name=f"{prefix}_{tag}_br")
+        reg_out[f"is_jal_{i}"]     = domain.cycle(is_jal,         name=f"{prefix}_{tag}_jal")
+        reg_out[f"is_jalr_{i}"]    = domain.cycle(is_jalr,        name=f"{prefix}_{tag}_jalr")
+        reg_out[f"is_load_{i}"]    = domain.cycle(is_load,        name=f"{prefix}_{tag}_ld")
+        reg_out[f"is_store_{i}"]   = domain.cycle(is_store,       name=f"{prefix}_{tag}_st")
+        reg_out[f"use_imm_{i}"]    = domain.cycle(use_imm,        name=f"{prefix}_{tag}_uimm")
+        reg_out[f"rd_valid_{i}"]   = domain.cycle(rd_valid,       name=f"{prefix}_{tag}_rdv")
+        reg_out[f"rs1_valid_{i}"]  = domain.cycle(rs1_valid,      name=f"{prefix}_{tag}_r1v")
+        reg_out[f"rs2_valid_{i}"]  = domain.cycle(rs2_valid,      name=f"{prefix}_{tag}_r2v")
+        reg_out[f"is_fp_{i}"]      = domain.cycle(is_fp,          name=f"{prefix}_{tag}_fp")
+        reg_out[f"is_vec_{i}"]     = domain.cycle(is_vec,         name=f"{prefix}_{tag}_vec")
 
     # ── Cycle 1: emit registered outputs ──────────────────────────────
 
     domain.next()
 
     for i in range(decode_width):
-        m.output(f"out_valid_{i}",      reg_out[f"v_{i}"])
-        m.output(f"out_pc_{i}",         reg_out[f"pc_{i}"])
-        m.output(f"out_inst_{i}",       reg_out[f"inst_{i}"])
-        m.output(f"out_rd_{i}",         reg_out[f"rd_{i}"])
-        m.output(f"out_rs1_{i}",        reg_out[f"rs1_{i}"])
-        m.output(f"out_rs2_{i}",        reg_out[f"rs2_{i}"])
-        m.output(f"out_funct3_{i}",     reg_out[f"funct3_{i}"])
-        m.output(f"out_funct7_{i}",     reg_out[f"funct7_{i}"])
-        m.output(f"out_imm_{i}",        reg_out[f"imm_{i}"])
-        m.output(f"out_alu_op_{i}",     reg_out[f"alu_op_{i}"])
-        m.output(f"out_is_branch_{i}",  reg_out[f"is_branch_{i}"])
-        m.output(f"out_is_jal_{i}",     reg_out[f"is_jal_{i}"])
-        m.output(f"out_is_jalr_{i}",    reg_out[f"is_jalr_{i}"])
-        m.output(f"out_is_load_{i}",    reg_out[f"is_load_{i}"])
-        m.output(f"out_is_store_{i}",   reg_out[f"is_store_{i}"])
-        m.output(f"out_use_imm_{i}",    reg_out[f"use_imm_{i}"])
-        m.output(f"out_rd_valid_{i}",   reg_out[f"rd_valid_{i}"])
-        m.output(f"out_rs1_valid_{i}",  reg_out[f"rs1_valid_{i}"])
-        m.output(f"out_rs2_valid_{i}",  reg_out[f"rs2_valid_{i}"])
-        m.output(f"out_is_fp_{i}",      reg_out[f"is_fp_{i}"])
-        m.output(f"out_is_vec_{i}",     reg_out[f"is_vec_{i}"])
+        m.output(f"{prefix}_out_valid_{i}",      reg_out[f"v_{i}"])
+        m.output(f"{prefix}_out_pc_{i}",         reg_out[f"pc_{i}"])
+        m.output(f"{prefix}_out_inst_{i}",       reg_out[f"inst_{i}"])
+        m.output(f"{prefix}_out_rd_{i}",         reg_out[f"rd_{i}"])
+        m.output(f"{prefix}_out_rs1_{i}",        reg_out[f"rs1_{i}"])
+        m.output(f"{prefix}_out_rs2_{i}",        reg_out[f"rs2_{i}"])
+        m.output(f"{prefix}_out_funct3_{i}",     reg_out[f"funct3_{i}"])
+        m.output(f"{prefix}_out_funct7_{i}",     reg_out[f"funct7_{i}"])
+        m.output(f"{prefix}_out_imm_{i}",        reg_out[f"imm_{i}"])
+        m.output(f"{prefix}_out_alu_op_{i}",     reg_out[f"alu_op_{i}"])
+        m.output(f"{prefix}_out_is_branch_{i}",  reg_out[f"is_branch_{i}"])
+        m.output(f"{prefix}_out_is_jal_{i}",     reg_out[f"is_jal_{i}"])
+        m.output(f"{prefix}_out_is_jalr_{i}",    reg_out[f"is_jalr_{i}"])
+        m.output(f"{prefix}_out_is_load_{i}",    reg_out[f"is_load_{i}"])
+        m.output(f"{prefix}_out_is_store_{i}",   reg_out[f"is_store_{i}"])
+        m.output(f"{prefix}_out_use_imm_{i}",    reg_out[f"use_imm_{i}"])
+        m.output(f"{prefix}_out_rd_valid_{i}",   reg_out[f"rd_valid_{i}"])
+        m.output(f"{prefix}_out_rs1_valid_{i}",  reg_out[f"rs1_valid_{i}"])
+        m.output(f"{prefix}_out_rs2_valid_{i}",  reg_out[f"rs2_valid_{i}"])
+        m.output(f"{prefix}_out_is_fp_{i}",      reg_out[f"is_fp_{i}"])
+        m.output(f"{prefix}_out_is_vec_{i}",     reg_out[f"is_vec_{i}"])
+    return _out
 
 
 build_decode.__pycircuit_name__ = "decode"

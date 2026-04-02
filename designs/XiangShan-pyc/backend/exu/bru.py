@@ -59,22 +59,34 @@ def build_bru(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "bru",
     data_width: int = XLEN,
     pc_width: int = PC_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """BRU: single-cycle branch resolution unit."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     op_w = BRU_OP_WIDTH
     ext_w = data_width + 1
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
-    in_valid = cas(domain, m.input("in_valid", width=1), cycle=0)
-    src1 = cas(domain, m.input("src1", width=data_width), cycle=0)
-    src2 = cas(domain, m.input("src2", width=data_width), cycle=0)
-    pc = cas(domain, m.input("pc", width=pc_width), cycle=0)
-    imm = cas(domain, m.input("imm", width=data_width), cycle=0)
-    bru_op = cas(domain, m.input("bru_op", width=op_w), cycle=0)
-    predicted_taken = cas(domain, m.input("predicted_taken", width=1), cycle=0)
+    in_valid = (_in["in_valid"] if "in_valid" in _in else
+        cas(domain, m.input(f"{prefix}_in_valid", width=1), cycle=0))
+    src1 = (_in["src1"] if "src1" in _in else
+        cas(domain, m.input(f"{prefix}_src1", width=data_width), cycle=0))
+    src2 = (_in["src2"] if "src2" in _in else
+        cas(domain, m.input(f"{prefix}_src2", width=data_width), cycle=0))
+    pc = (_in["pc"] if "pc" in _in else
+        cas(domain, m.input(f"{prefix}_pc", width=pc_width), cycle=0))
+    imm = (_in["imm"] if "imm" in _in else
+        cas(domain, m.input(f"{prefix}_imm", width=data_width), cycle=0))
+    bru_op = (_in["bru_op"] if "bru_op" in _in else
+        cas(domain, m.input(f"{prefix}_bru_op", width=op_w), cycle=0))
+    predicted_taken = (_in["predicted_taken"] if "predicted_taken" in _in else
+        cas(domain, m.input(f"{prefix}_predicted_taken", width=1), cycle=0))
 
     def _const(val, w=data_width):
         return cas(domain, m.const(val, width=w), cycle=0)
@@ -144,13 +156,21 @@ def build_bru(
     redirect_valid = in_valid & mispredict
 
     # ── Outputs ──────────────────────────────────────────────────
-    m.output("taken", taken.wire)
-    m.output("target", target.wire)
-    m.output("redirect_valid", redirect_valid.wire)
-    m.output("redirect_target", target.wire)
-    m.output("link_addr", link_addr.wire)
-    m.output("is_link", is_link.wire)
-    m.output("mispredict", mispredict.wire)
+    m.output(f"{prefix}_taken", taken.wire)
+    _out["taken"] = taken
+    m.output(f"{prefix}_target", target.wire)
+    _out["target"] = target
+    m.output(f"{prefix}_redirect_valid", redirect_valid.wire)
+    _out["redirect_valid"] = redirect_valid
+    m.output(f"{prefix}_redirect_target", target.wire)
+    _out["redirect_target"] = target
+    m.output(f"{prefix}_link_addr", link_addr.wire)
+    _out["link_addr"] = link_addr
+    m.output(f"{prefix}_is_link", is_link.wire)
+    _out["is_link"] = is_link
+    m.output(f"{prefix}_mispredict", mispredict.wire)
+    _out["mispredict"] = mispredict
+    return _out
 
 
 build_bru.__pycircuit_name__ = "bru"

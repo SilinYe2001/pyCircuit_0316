@@ -46,29 +46,34 @@ def build_regfile(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "rf",
     num_entries: int = INT_PHYS_REGS,
     num_read: int = NUM_READ_PORTS,
     num_write: int = NUM_WRITE_PORTS,
     data_width: int = XLEN,
     addr_width: int = PTAG_WIDTH_INT,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Physical register file: multi-read, multi-write with zero-reg."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     ZERO_DATA = cas(domain, m.const(0, width=data_width), cycle=0)
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
-    rd_addr = [cas(domain, m.input(f"rd_addr_{i}", width=addr_width), cycle=0)
+    rd_addr = [cas(domain, m.input(f"{prefix}_rd_addr_{i}", width=addr_width), cycle=0)
                for i in range(num_read)]
 
-    wr_en = [cas(domain, m.input(f"wr_en_{i}", width=1), cycle=0)
+    wr_en = [cas(domain, m.input(f"{prefix}_wr_en_{i}", width=1), cycle=0)
              for i in range(num_write)]
-    wr_addr = [cas(domain, m.input(f"wr_addr_{i}", width=addr_width), cycle=0)
+    wr_addr = [cas(domain, m.input(f"{prefix}_wr_addr_{i}", width=addr_width), cycle=0)
                for i in range(num_write)]
-    wr_data = [cas(domain, m.input(f"wr_data_{i}", width=data_width), cycle=0)
+    wr_data = [cas(domain, m.input(f"{prefix}_wr_data_{i}", width=data_width), cycle=0)
                for i in range(num_write)]
 
     # ── State: register entries ──────────────────────────────────
-    regs = [domain.state(width=data_width, reset_value=0, name=f"r{i}")
+    regs = [domain.state(width=data_width, reset_value=0, name=f"{prefix}_r{i}")
             for i in range(num_entries)]
 
     # ── Cycle 0: Combinational read ──────────────────────────────
@@ -80,7 +85,7 @@ def build_regfile(
         # r0 always reads zero
         is_r0 = rd_addr[p] == cas(domain, m.const(0, width=addr_width), cycle=0)
         rd_val = mux(is_r0, ZERO_DATA, rd_val)
-        m.output(f"rd_data_{p}", rd_val.wire)
+        m.output(f"{prefix}_rd_data_{p}", rd_val.wire)
 
     # ── Cycle 1: Synchronous write ───────────────────────────────
     domain.next()
@@ -95,6 +100,7 @@ def build_regfile(
             hit = wr_addr[w] == cas(domain, m.const(j, width=addr_width), cycle=0)
             we = do_write & hit
             regs[j].set(wr_data[w], when=we)
+    return _out
 
 
 build_regfile.__pycircuit_name__ = "regfile"

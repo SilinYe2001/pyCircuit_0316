@@ -51,12 +51,17 @@ def build_ittage(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "ittage",
     table_infos: list[tuple[int, int]] = SMALL_ITTAGE_TABLE_INFOS,
     tag_width: int = ITTAGE_TAG_WIDTH,
     useful_width: int = ITTAGE_USEFUL_WIDTH,
     pc_width: int = PC_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """ITTAGE: indirect target predictor with tagged geometric history tables."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
     num_tables = len(table_infos)
     useful_max = (1 << useful_width) - 1
     hist_len_max = max(hl for _, hl in table_infos)
@@ -64,17 +69,28 @@ def build_ittage(
     prov_id_w = max(1, math.ceil(math.log2(num_tables + 1)))
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────────
-    s0_fire = cas(domain, m.input("s0_fire", width=1), cycle=0)
-    s0_pc = cas(domain, m.input("s0_pc", width=pc_width), cycle=0)
-    global_hist = cas(domain, m.input("global_hist", width=hist_w), cycle=0)
+    s0_fire = (_in["s0_fire"] if "s0_fire" in _in else
+        cas(domain, m.input(f"{prefix}_s0_fire", width=1), cycle=0))
+    s0_pc = (_in["s0_pc"] if "s0_pc" in _in else
+        cas(domain, m.input(f"{prefix}_s0_pc", width=pc_width), cycle=0))
+    global_hist = (_in["global_hist"] if "global_hist" in _in else
+        cas(domain, m.input(f"{prefix}_global_hist", width=hist_w), cycle=0))
 
-    train_valid = cas(domain, m.input("train_valid", width=1), cycle=0)
-    train_pc = cas(domain, m.input("train_pc", width=pc_width), cycle=0)
-    train_hist = cas(domain, m.input("train_hist", width=hist_w), cycle=0)
-    train_target = cas(domain, m.input("train_target", width=pc_width), cycle=0)
-    train_mispred = cas(domain, m.input("train_mispred", width=1), cycle=0)
-    train_provider_id = cas(domain, m.input("train_provider_id", width=prov_id_w), cycle=0)
-    train_provider_valid = cas(domain, m.input("train_provider_valid", width=1), cycle=0)
+    train_valid = (_in["train_valid"] if "train_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_train_valid", width=1), cycle=0))
+    train_pc = (_in["train_pc"] if "train_pc" in _in else
+        cas(domain, m.input(f"{prefix}_train_pc", width=pc_width), cycle=0))
+    train_hist = (_in["train_hist"] if "train_hist" in _in else
+        cas(domain, m.input(f"{prefix}_train_hist", width=hist_w), cycle=0))
+    train_target = (_in["train_target"] if "train_target" in _in else
+        cas(domain, m.input(f"{prefix}_train_target", width=pc_width), cycle=0))
+    train_mispred = (_in["train_mispred"] if "train_mispred" in _in else
+        cas(domain, m.input(f"{prefix}_train_mispred", width=1), cycle=0))
+    train_provider_id = (_in["train_provider_id"] if "train_provider_id" in _in else
+        cas(domain, m.input(f"{prefix}_train_provider_id", width=prov_id_w), cycle=0))
+    train_provider_valid = (_in["train_provider_valid"] if "train_provider_valid" in _in else
+        cas(domain, m.input(f"{prefix}_train_provider_valid", width=1), cycle=0))
 
     zero1 = cas(domain, m.const(0, width=1), cycle=0)
     one1 = cas(domain, m.const(1, width=1), cycle=0)
@@ -87,10 +103,10 @@ def build_ittage(
     tbl_entry_useful = []
 
     for t_idx, (tbl_size, _hl) in enumerate(table_infos):
-        ev = [domain.state(width=1, reset_value=0, name=f"it{t_idx}_v_{i}") for i in range(tbl_size)]
-        etag = [domain.state(width=tag_width, reset_value=0, name=f"it{t_idx}_tag_{i}") for i in range(tbl_size)]
-        etar = [domain.state(width=pc_width, reset_value=0, name=f"it{t_idx}_tar_{i}") for i in range(tbl_size)]
-        euse = [domain.state(width=useful_width, reset_value=0, name=f"it{t_idx}_u_{i}") for i in range(tbl_size)]
+        ev = [domain.state(width=1, reset_value=0, name=f"{prefix}_it{t_idx}_v_{i}") for i in range(tbl_size)]
+        etag = [domain.state(width=tag_width, reset_value=0, name=f"{prefix}_it{t_idx}_tag_{i}") for i in range(tbl_size)]
+        etar = [domain.state(width=pc_width, reset_value=0, name=f"{prefix}_it{t_idx}_tar_{i}") for i in range(tbl_size)]
+        euse = [domain.state(width=useful_width, reset_value=0, name=f"{prefix}_it{t_idx}_u_{i}") for i in range(tbl_size)]
         tbl_entry_valid.append(ev)
         tbl_entry_tag.append(etag)
         tbl_entry_target.append(etar)
@@ -141,13 +157,17 @@ def build_ittage(
         provider_id = mux(is_hit, cas(domain, m.const(t_idx + 1, width=prov_id_w), cycle=0), provider_id)
 
     pred_valid = s0_fire & provider_valid
-    m.output("pred_valid", pred_valid.wire)
-    m.output("pred_target", provider_target.wire)
-    m.output("provider_valid", provider_valid.wire)
-    m.output("provider_id", provider_id.wire)
+    m.output(f"{prefix}_pred_valid", pred_valid.wire)
+    _out["pred_valid"] = pred_valid
+    m.output(f"{prefix}_pred_target", provider_target.wire)
+    _out["pred_target"] = provider_target
+    m.output(f"{prefix}_provider_valid", provider_valid.wire)
+    _out["provider_valid"] = provider_valid
+    m.output(f"{prefix}_provider_id", provider_id.wire)
+    _out["provider_id"] = provider_id
 
     # ── Tick counter for periodic useful reset ───────────────────────
-    tick_r = domain.state(width=8, reset_value=0, name="it_tick")
+    tick_r = domain.state(width=8, reset_value=0, name=f"{prefix}_it_tick")
     tick_val = cas(domain, tick_r.wire, cycle=0)
     tick_overflow = tick_val == cas(domain, m.const(255, width=8), cycle=0)
 
@@ -212,6 +232,7 @@ def build_ittage(
                     cas(domain, m.const(0, width=8), cycle=0),
                     cas(domain, (tick_val.wire + u(8, 1))[0:8], cycle=0))
     tick_r.set(mux(train_valid & train_mispred, next_tick, tick_val))
+    return _out
 
 
 build_ittage.__pycircuit_name__ = "ittage"

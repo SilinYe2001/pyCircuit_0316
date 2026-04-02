@@ -50,12 +50,17 @@ def build_dcache(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "dc",
     n_sets: int = DCACHE_SETS,
     n_ways: int = DCACHE_WAYS,
     block_bytes: int = DCACHE_BLOCK_BYTES,
     paddr_width: int = 36,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """DCache: VIPT set-associative data cache with 4-stage pipeline."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     block_bits = block_bytes * 8
     offset_bits = int(math.log2(block_bytes))
@@ -71,23 +76,41 @@ def build_dcache(
     # s0 — Request: accept load/store, decompose address, read SRAMs
     # ================================================================
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
 
-    load_valid = cas(domain, m.input("load_valid", width=1), cycle=0)
-    load_vaddr = cas(domain, m.input("load_vaddr", width=paddr_width), cycle=0)
-    load_ptag = cas(domain, m.input("load_ptag", width=tag_bits), cycle=0)
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
-    store_valid = cas(domain, m.input("store_valid", width=1), cycle=0)
-    store_vaddr = cas(domain, m.input("store_vaddr", width=paddr_width), cycle=0)
-    store_ptag = cas(domain, m.input("store_ptag", width=tag_bits), cycle=0)
-    store_wdata = cas(domain, m.input("store_wdata", width=block_bits), cycle=0)
-    store_wmask = cas(domain, m.input("store_wmask", width=block_bytes), cycle=0)
+    load_valid = (_in["load_valid"] if "load_valid" in _in else
 
-    refill_valid = cas(domain, m.input("refill_valid", width=1), cycle=0)
-    refill_set = cas(domain, m.input("refill_set", width=index_bits), cycle=0)
-    refill_tag = cas(domain, m.input("refill_tag", width=tag_bits), cycle=0)
-    refill_way = cas(domain, m.input("refill_way", width=way_bits), cycle=0)
-    refill_data = cas(domain, m.input("refill_data", width=block_bits), cycle=0)
+        cas(domain, m.input(f"{prefix}_load_valid", width=1), cycle=0))
+    load_vaddr = (_in["load_vaddr"] if "load_vaddr" in _in else
+        cas(domain, m.input(f"{prefix}_load_vaddr", width=paddr_width), cycle=0))
+    load_ptag = (_in["load_ptag"] if "load_ptag" in _in else
+        cas(domain, m.input(f"{prefix}_load_ptag", width=tag_bits), cycle=0))
+
+    store_valid = (_in["store_valid"] if "store_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_store_valid", width=1), cycle=0))
+    store_vaddr = (_in["store_vaddr"] if "store_vaddr" in _in else
+        cas(domain, m.input(f"{prefix}_store_vaddr", width=paddr_width), cycle=0))
+    store_ptag = (_in["store_ptag"] if "store_ptag" in _in else
+        cas(domain, m.input(f"{prefix}_store_ptag", width=tag_bits), cycle=0))
+    store_wdata = (_in["store_wdata"] if "store_wdata" in _in else
+        cas(domain, m.input(f"{prefix}_store_wdata", width=block_bits), cycle=0))
+    store_wmask = (_in["store_wmask"] if "store_wmask" in _in else
+        cas(domain, m.input(f"{prefix}_store_wmask", width=block_bytes), cycle=0))
+
+    refill_valid = (_in["refill_valid"] if "refill_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_refill_valid", width=1), cycle=0))
+    refill_set = (_in["refill_set"] if "refill_set" in _in else
+        cas(domain, m.input(f"{prefix}_refill_set", width=index_bits), cycle=0))
+    refill_tag = (_in["refill_tag"] if "refill_tag" in _in else
+        cas(domain, m.input(f"{prefix}_refill_tag", width=tag_bits), cycle=0))
+    refill_way = (_in["refill_way"] if "refill_way" in _in else
+        cas(domain, m.input(f"{prefix}_refill_way", width=way_bits), cycle=0))
+    refill_data = (_in["refill_data"] if "refill_data" in _in else
+        cas(domain, m.input(f"{prefix}_refill_data", width=block_bits), cycle=0))
 
     # Load has priority; store accepted only when no load
     req_valid = load_valid | store_valid
@@ -101,23 +124,23 @@ def build_dcache(
     # ── Feedback state ────────────────────────────────────────────
 
     valid_regs = [
-        domain.state(width=n_sets, reset_value=0, name=f"vld{w}")
+        domain.state(width=n_sets, reset_value=0, name=f"{prefix}_vld{w}")
         for w in range(n_ways)
     ]
     dirty_regs = [
-        domain.state(width=n_sets, reset_value=0, name=f"drt{w}")
+        domain.state(width=n_sets, reset_value=0, name=f"{prefix}_drt{w}")
         for w in range(n_ways)
     ]
 
-    mshr_valid = domain.state(width=1, reset_value=0, name="mshr_v")
-    mshr_set = domain.state(width=index_bits, reset_value=0, name="mshr_set")
-    mshr_tag = domain.state(width=tag_bits, reset_value=0, name="mshr_tag")
+    mshr_valid = domain.state(width=1, reset_value=0, name=f"{prefix}_mshr_v")
+    mshr_set = domain.state(width=index_bits, reset_value=0, name=f"{prefix}_mshr_set")
+    mshr_tag = domain.state(width=tag_bits, reset_value=0, name=f"{prefix}_mshr_tag")
 
-    swb_valid = domain.state(width=1, reset_value=0, name="swb_v")
-    swb_set = domain.state(width=index_bits, reset_value=0, name="swb_set")
-    swb_way = domain.state(width=way_bits, reset_value=0, name="swb_way")
-    swb_data = domain.state(width=block_bits, reset_value=0, name="swb_data")
-    swb_mask = domain.state(width=block_bytes, reset_value=0, name="swb_mask")
+    swb_valid = domain.state(width=1, reset_value=0, name=f"{prefix}_swb_v")
+    swb_set = domain.state(width=index_bits, reset_value=0, name=f"{prefix}_swb_set")
+    swb_way = domain.state(width=way_bits, reset_value=0, name=f"{prefix}_swb_way")
+    swb_data = domain.state(width=block_bits, reset_value=0, name=f"{prefix}_swb_data")
+    swb_mask = domain.state(width=block_bytes, reset_value=0, name=f"{prefix}_swb_mask")
 
     # ── Data SRAM write mux: refill has priority over store writeback ─
 
@@ -154,7 +177,7 @@ def build_dcache(
             wvalid=tag_wr_en, waddr=refill_set.wire,
             wdata=refill_tag.wire,
             wstrb=m.const((1 << tag_strobe_w) - 1, width=tag_strobe_w),
-            depth=n_sets, name=f"tag_w{w}",
+            depth=n_sets, name=f"{prefix}_tag_w{w}",
         ))
 
         data_rd.append(m.sync_mem(
@@ -163,17 +186,17 @@ def build_dcache(
             wvalid=data_wr_en, waddr=data_wr_set.wire,
             wdata=data_wr_data.wire,
             wstrb=data_wr_mask.wire,
-            depth=n_sets, name=f"data_w{w}",
+            depth=n_sets, name=f"{prefix}_data_w{w}",
         ))
 
     # ── Pipeline registers s0 → s1 ───────────────────────────────
 
-    s1_valid_w = domain.cycle(s0_fire.wire, name="s1_v")
-    s1_set_idx_w = domain.cycle(s0_set_idx.wire, name="s1_set")
-    s1_ptag_w = domain.cycle(req_ptag.wire, name="s1_ptag")
-    s1_is_store_w = domain.cycle(req_is_store.wire, name="s1_st")
-    s1_store_data_w = domain.cycle(store_wdata.wire, name="s1_wdata")
-    s1_store_mask_w = domain.cycle(store_wmask.wire, name="s1_wmask")
+    s1_valid_w = domain.cycle(s0_fire.wire, name=f"{prefix}_s1_v")
+    s1_set_idx_w = domain.cycle(s0_set_idx.wire, name=f"{prefix}_s1_set")
+    s1_ptag_w = domain.cycle(req_ptag.wire, name=f"{prefix}_s1_ptag")
+    s1_is_store_w = domain.cycle(req_is_store.wire, name=f"{prefix}_s1_st")
+    s1_store_data_w = domain.cycle(store_wdata.wire, name=f"{prefix}_s1_wdata")
+    s1_store_mask_w = domain.cycle(store_wmask.wire, name=f"{prefix}_s1_wmask")
 
     domain.next()  # ─────────────── s0 → s1 boundary ──────────────
 
@@ -204,16 +227,16 @@ def build_dcache(
 
     # ── Pipeline registers s1 → s2 ───────────────────────────────
 
-    s2_valid_w = domain.cycle(s1_valid_w, name="s2_v")
-    s2_hit_w = domain.cycle(s1_any_hit, name="s2_hit")
-    s2_miss_w = domain.cycle(s1_miss, name="s2_miss")
-    s2_data_w = domain.cycle(s1_hit_data, name="s2_data")
-    s2_set_idx_w = domain.cycle(s1_set_idx_w, name="s2_set")
-    s2_ptag_w = domain.cycle(s1_ptag_w, name="s2_ptag")
-    s2_is_store_w = domain.cycle(s1_is_store_w, name="s2_st")
-    s2_hit_way_w = domain.cycle(s1_hit_way, name="s2_hway")
-    s2_store_data_w = domain.cycle(s1_store_data_w, name="s2_wdata")
-    s2_store_mask_w = domain.cycle(s1_store_mask_w, name="s2_wmask")
+    s2_valid_w = domain.cycle(s1_valid_w, name=f"{prefix}_s2_v")
+    s2_hit_w = domain.cycle(s1_any_hit, name=f"{prefix}_s2_hit")
+    s2_miss_w = domain.cycle(s1_miss, name=f"{prefix}_s2_miss")
+    s2_data_w = domain.cycle(s1_hit_data, name=f"{prefix}_s2_data")
+    s2_set_idx_w = domain.cycle(s1_set_idx_w, name=f"{prefix}_s2_set")
+    s2_ptag_w = domain.cycle(s1_ptag_w, name=f"{prefix}_s2_ptag")
+    s2_is_store_w = domain.cycle(s1_is_store_w, name=f"{prefix}_s2_st")
+    s2_hit_way_w = domain.cycle(s1_hit_way, name=f"{prefix}_s2_hway")
+    s2_store_data_w = domain.cycle(s1_store_data_w, name=f"{prefix}_s2_wdata")
+    s2_store_mask_w = domain.cycle(s1_store_mask_w, name=f"{prefix}_s2_wmask")
 
     domain.next()  # ─────────────── s1 → s2 boundary ──────────────
 
@@ -244,13 +267,13 @@ def build_dcache(
 
     # ── Pipeline registers s2 → s3 ───────────────────────────────
 
-    s3_valid_w = domain.cycle(s2_valid_w, name="s3_v")
-    s3_hit_w = domain.cycle(s2_resp_hit, name="s3_hit")
-    s3_data_w = domain.cycle(s2_resp_data, name="s3_data")
-    s3_store_hit_w = domain.cycle(s2_store_hit, name="s3_st_hit")
-    s3_load_resp_v_w = domain.cycle(s2_load_resp_valid, name="s3_lrv")
-    s3_load_hit_w = domain.cycle(s2_load_hit, name="s3_lhit")
-    s3_store_resp_v_w = domain.cycle(s2_store_resp_valid, name="s3_srv")
+    s3_valid_w = domain.cycle(s2_valid_w, name=f"{prefix}_s3_v")
+    s3_hit_w = domain.cycle(s2_resp_hit, name=f"{prefix}_s3_hit")
+    s3_data_w = domain.cycle(s2_resp_data, name=f"{prefix}_s3_data")
+    s3_store_hit_w = domain.cycle(s2_store_hit, name=f"{prefix}_s3_st_hit")
+    s3_load_resp_v_w = domain.cycle(s2_load_resp_valid, name=f"{prefix}_s3_lrv")
+    s3_load_hit_w = domain.cycle(s2_load_hit, name=f"{prefix}_s3_lhit")
+    s3_store_resp_v_w = domain.cycle(s2_store_resp_valid, name=f"{prefix}_s3_srv")
 
     domain.next()  # ─────────────── s2 → s3 boundary ──────────────
 
@@ -308,19 +331,26 @@ def build_dcache(
     # Output ports
     # ================================================================
 
-    m.output("load_resp_valid", s3_load_resp_v_w)
-    m.output("load_resp_data", s3_data_w)
-    m.output("load_resp_hit", s3_load_hit_w)
+    m.output(f"{prefix}_load_resp_valid", s3_load_resp_v_w)
+    _out["load_resp_valid"] = cas(domain, s3_load_resp_v_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_load_resp_data", s3_data_w)
+    _out["load_resp_data"] = cas(domain, s3_data_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_load_resp_hit", s3_load_hit_w)
+    _out["load_resp_hit"] = cas(domain, s3_load_hit_w, cycle=domain.cycle_index)
 
-    m.output("store_resp_valid", s3_store_resp_v_w)
-    m.output("store_resp_hit", s3_store_hit_w)
+    m.output(f"{prefix}_store_resp_valid", s3_store_resp_v_w)
+    _out["store_resp_valid"] = cas(domain, s3_store_resp_v_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_store_resp_hit", s3_store_hit_w)
+    _out["store_resp_hit"] = cas(domain, s3_store_hit_w, cycle=domain.cycle_index)
 
-    m.output("miss_valid", mshr_alloc)
-    m.output("miss_addr", m.cat(
+    m.output(f"{prefix}_miss_valid", mshr_alloc)
+    _out["miss_valid"] = cas(domain, mshr_alloc, cycle=domain.cycle_index)
+    m.output(f"{prefix}_miss_addr", m.cat(
         s2_ptag_w,
         s2_set_idx_w,
         m.const(0, width=offset_bits),
     ))
+    return _out
 
 
 build_dcache.__pycircuit_name__ = "dcache"

@@ -55,18 +55,26 @@ def build_alu(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "alu",
     data_width: int = XLEN,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """ALU: single-cycle combinational arithmetic/logic unit."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     op_w = ALU_OP_WIDTH
     shamt_w = max(1, (data_width - 1).bit_length())  # 6 for 64-bit
     ext_w = data_width + 1  # for subtraction / comparison overflow
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
-    src1 = cas(domain, m.input("src1", width=data_width), cycle=0)
-    src2 = cas(domain, m.input("src2", width=data_width), cycle=0)
-    alu_op = cas(domain, m.input("alu_op", width=op_w), cycle=0)
+    src1 = (_in["src1"] if "src1" in _in else
+        cas(domain, m.input(f"{prefix}_src1", width=data_width), cycle=0))
+    src2 = (_in["src2"] if "src2" in _in else
+        cas(domain, m.input(f"{prefix}_src2", width=data_width), cycle=0))
+    alu_op = (_in["alu_op"] if "alu_op" in _in else
+        cas(domain, m.input(f"{prefix}_alu_op", width=op_w), cycle=0))
 
     def _const(val, w=data_width):
         return cas(domain, m.const(val, width=w), cycle=0)
@@ -124,10 +132,13 @@ def build_alu(
     result = mux(alu_op == _op(OP_SRA),  sra_result,  result)
 
     # ── Outputs ──────────────────────────────────────────────────
-    m.output("result", result.wire)
+    m.output(f"{prefix}_result", result.wire)
+    _out["result"] = result
 
     zero_flag = result == ZERO
-    m.output("zero", zero_flag.wire)
+    m.output(f"{prefix}_zero", zero_flag.wire)
+    _out["zero"] = zero_flag
+    return _out
 
 
 build_alu.__pycircuit_name__ = "alu"

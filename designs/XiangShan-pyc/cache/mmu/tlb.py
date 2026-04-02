@@ -45,12 +45,17 @@ def build_tlb(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "tlb",
     n_ways: int = ITLB_WAYS,
     vpn_width: int = 27,
     ppn_width: int = 24,
     asid_width: int = ASID_LENGTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """TLB: fully-associative translation lookaside buffer with 2-cycle pipeline."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     way_bits = max(1, (n_ways - 1).bit_length())
 
@@ -60,39 +65,52 @@ def build_tlb(
     # Cycle 0 — CAM Lookup: compare VPN+ASID against all entries
     # ================================================================
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
-    flush_asid_valid = cas(domain, m.input("flush_asid_valid", width=1), cycle=0)
-    flush_asid = cas(domain, m.input("flush_asid", width=asid_width), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
 
-    lookup_valid = cas(domain, m.input("lookup_valid", width=1), cycle=0)
-    lookup_vpn = cas(domain, m.input("lookup_vpn", width=vpn_width), cycle=0)
-    lookup_asid = cas(domain, m.input("lookup_asid", width=asid_width), cycle=0)
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
+    flush_asid_valid = (_in["flush_asid_valid"] if "flush_asid_valid" in _in else
+        cas(domain, m.input(f"{prefix}_flush_asid_valid", width=1), cycle=0))
+    flush_asid = (_in["flush_asid"] if "flush_asid" in _in else
+        cas(domain, m.input(f"{prefix}_flush_asid", width=asid_width), cycle=0))
 
-    refill_valid = cas(domain, m.input("refill_valid", width=1), cycle=0)
-    refill_vpn = cas(domain, m.input("refill_vpn", width=vpn_width), cycle=0)
-    refill_ppn = cas(domain, m.input("refill_ppn", width=ppn_width), cycle=0)
-    refill_asid = cas(domain, m.input("refill_asid", width=asid_width), cycle=0)
+    lookup_valid = (_in["lookup_valid"] if "lookup_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_lookup_valid", width=1), cycle=0))
+    lookup_vpn = (_in["lookup_vpn"] if "lookup_vpn" in _in else
+        cas(domain, m.input(f"{prefix}_lookup_vpn", width=vpn_width), cycle=0))
+    lookup_asid = (_in["lookup_asid"] if "lookup_asid" in _in else
+        cas(domain, m.input(f"{prefix}_lookup_asid", width=asid_width), cycle=0))
+
+    refill_valid = (_in["refill_valid"] if "refill_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_refill_valid", width=1), cycle=0))
+    refill_vpn = (_in["refill_vpn"] if "refill_vpn" in _in else
+        cas(domain, m.input(f"{prefix}_refill_vpn", width=vpn_width), cycle=0))
+    refill_ppn = (_in["refill_ppn"] if "refill_ppn" in _in else
+        cas(domain, m.input(f"{prefix}_refill_ppn", width=ppn_width), cycle=0))
+    refill_asid = (_in["refill_asid"] if "refill_asid" in _in else
+        cas(domain, m.input(f"{prefix}_refill_asid", width=asid_width), cycle=0))
 
     # ── Entry storage (fully-associative CAM) ─────────────────────
 
     entry_valid = [
-        domain.state(width=1, reset_value=0, name=f"e{i}_v")
+        domain.state(width=1, reset_value=0, name=f"{prefix}_e{i}_v")
         for i in range(n_ways)
     ]
     entry_vpn = [
-        domain.state(width=vpn_width, reset_value=0, name=f"e{i}_vpn")
+        domain.state(width=vpn_width, reset_value=0, name=f"{prefix}_e{i}_vpn")
         for i in range(n_ways)
     ]
     entry_ppn = [
-        domain.state(width=ppn_width, reset_value=0, name=f"e{i}_ppn")
+        domain.state(width=ppn_width, reset_value=0, name=f"{prefix}_e{i}_ppn")
         for i in range(n_ways)
     ]
     entry_asid = [
-        domain.state(width=asid_width, reset_value=0, name=f"e{i}_asid")
+        domain.state(width=asid_width, reset_value=0, name=f"{prefix}_e{i}_asid")
         for i in range(n_ways)
     ]
 
-    replace_ptr = domain.state(width=way_bits, reset_value=0, name="repl_ptr")
+    replace_ptr = domain.state(width=way_bits, reset_value=0, name=f"{prefix}_repl_ptr")
 
     # ── Read entries as CAS signals at cycle 0 ────────────────────
 
@@ -123,11 +141,11 @@ def build_tlb(
 
     # ── Pipeline registers c0 → c1 ───────────────────────────────
 
-    s1_valid_w = domain.cycle(lookup_valid.wire, name="s1_v")
-    s1_hit_w = domain.cycle(any_hit.wire, name="s1_hit")
-    s1_miss_w = domain.cycle(miss.wire, name="s1_miss")
-    s1_ppn_w = domain.cycle(hit_ppn.wire, name="s1_ppn")
-    s1_vpn_w = domain.cycle(lookup_vpn.wire, name="s1_vpn")
+    s1_valid_w = domain.cycle(lookup_valid.wire, name=f"{prefix}_s1_v")
+    s1_hit_w = domain.cycle(any_hit.wire, name=f"{prefix}_s1_hit")
+    s1_miss_w = domain.cycle(miss.wire, name=f"{prefix}_s1_miss")
+    s1_ppn_w = domain.cycle(hit_ppn.wire, name=f"{prefix}_s1_ppn")
+    s1_vpn_w = domain.cycle(lookup_vpn.wire, name=f"{prefix}_s1_vpn")
 
     domain.next()  # ─────────────── c0 → c1 boundary ──────────────
 
@@ -174,13 +192,20 @@ def build_tlb(
     # Output ports
     # ================================================================
 
-    m.output("resp_valid", s1_valid_w)
-    m.output("resp_hit", s1_hit_w)
-    m.output("resp_miss", s1_miss_w)
-    m.output("resp_ppn", s1_ppn_w)
+    m.output(f"{prefix}_resp_valid", s1_valid_w)
+    _out["resp_valid"] = cas(domain, s1_valid_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_resp_hit", s1_hit_w)
+    _out["resp_hit"] = cas(domain, s1_hit_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_resp_miss", s1_miss_w)
+    _out["resp_miss"] = cas(domain, s1_miss_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_resp_ppn", s1_ppn_w)
+    _out["resp_ppn"] = cas(domain, s1_ppn_w, cycle=domain.cycle_index)
 
-    m.output("ptw_req_valid", s1_miss_w)
-    m.output("ptw_req_vpn", s1_vpn_w)
+    m.output(f"{prefix}_ptw_req_valid", s1_miss_w)
+    _out["ptw_req_valid"] = cas(domain, s1_miss_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_ptw_req_vpn", s1_vpn_w)
+    _out["ptw_req_vpn"] = cas(domain, s1_vpn_w, cycle=domain.cycle_index)
+    return _out
 
 
 build_tlb.__pycircuit_name__ = "tlb"

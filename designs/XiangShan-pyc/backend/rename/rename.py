@@ -48,12 +48,14 @@ def build_rename(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "ren",
     rename_width: int = RENAME_WIDTH,
     int_phys_regs: int = INT_PHYS_REGS,
     int_logic_regs: int = INT_LOGIC_REGS,
     commit_width: int = COMMIT_WIDTH,
     snapshot_num: int = RENAME_SNAPSHOT_NUM,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Rename stage: RAT + FreeList + intra-group bypass.
 
     Pipeline:
@@ -62,6 +64,9 @@ def build_rename(
       Cycle 1 — update RAT with new mappings, advance free-list pointers,
                 handle commit/redirect/flush.
     """
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
     ptag_w = max(1, (int_phys_regs - 1).bit_length())
     lreg_w = max(1, (int_logic_regs - 1).bit_length())
     fl_size = int_phys_regs
@@ -77,38 +82,42 @@ def build_rename(
     rst = m.reset_active(cd.rst)
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
-    stall = cas(domain, m.input("stall", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
+    stall = (_in["stall"] if "stall" in _in else
+        cas(domain, m.input(f"{prefix}_stall", width=1), cycle=0))
 
-    in_valid = [cas(domain, m.input(f"in_valid_{i}", width=1), cycle=0)
+    in_valid = [cas(domain, m.input(f"{prefix}_in_valid_{i}", width=1), cycle=0)
                 for i in range(rename_width)]
-    in_rd = [cas(domain, m.input(f"in_rd_{i}", width=lreg_w), cycle=0)
+    in_rd = [cas(domain, m.input(f"{prefix}_in_rd_{i}", width=lreg_w), cycle=0)
              for i in range(rename_width)]
-    in_rs1 = [cas(domain, m.input(f"in_rs1_{i}", width=lreg_w), cycle=0)
+    in_rs1 = [cas(domain, m.input(f"{prefix}_in_rs1_{i}", width=lreg_w), cycle=0)
               for i in range(rename_width)]
-    in_rs2 = [cas(domain, m.input(f"in_rs2_{i}", width=lreg_w), cycle=0)
+    in_rs2 = [cas(domain, m.input(f"{prefix}_in_rs2_{i}", width=lreg_w), cycle=0)
               for i in range(rename_width)]
-    in_rd_valid = [cas(domain, m.input(f"in_rd_valid_{i}", width=1), cycle=0)
+    in_rd_valid = [cas(domain, m.input(f"{prefix}_in_rd_valid_{i}", width=1), cycle=0)
                    for i in range(rename_width)]
-    in_rs1_valid = [cas(domain, m.input(f"in_rs1_valid_{i}", width=1), cycle=0)
+    in_rs1_valid = [cas(domain, m.input(f"{prefix}_in_rs1_valid_{i}", width=1), cycle=0)
                     for i in range(rename_width)]
-    in_rs2_valid = [cas(domain, m.input(f"in_rs2_valid_{i}", width=1), cycle=0)
+    in_rs2_valid = [cas(domain, m.input(f"{prefix}_in_rs2_valid_{i}", width=1), cycle=0)
                     for i in range(rename_width)]
 
     # Commit interface — free old physical regs when ROB commits
-    commit_valid = [cas(domain, m.input(f"commit_valid_{i}", width=1), cycle=0)
+    commit_valid = [cas(domain, m.input(f"{prefix}_commit_valid_{i}", width=1), cycle=0)
                     for i in range(commit_width)]
-    commit_old_pdest = [cas(domain, m.input(f"commit_old_pdest_{i}", width=ptag_w), cycle=0)
+    commit_old_pdest = [cas(domain, m.input(f"{prefix}_commit_old_pdest_{i}", width=ptag_w), cycle=0)
                         for i in range(commit_width)]
-    commit_rd_valid = [cas(domain, m.input(f"commit_rd_valid_{i}", width=1), cycle=0)
+    commit_rd_valid = [cas(domain, m.input(f"{prefix}_commit_rd_valid_{i}", width=1), cycle=0)
                        for i in range(commit_width)]
 
     # Redirect — snapshot-based recovery
-    redirect_valid = cas(domain, m.input("redirect_valid", width=1), cycle=0)
-    redirect_snap_id = cas(domain, m.input("redirect_snap_id", width=snap_id_w), cycle=0)
+    redirect_valid = (_in["redirect_valid"] if "redirect_valid" in _in else
+        cas(domain, m.input(f"{prefix}_redirect_valid", width=1), cycle=0))
+    redirect_snap_id = (_in["redirect_snap_id"] if "redirect_snap_id" in _in else
+        cas(domain, m.input(f"{prefix}_redirect_snap_id", width=snap_id_w), cycle=0))
 
     # ── State: RAT (logical reg i → physical reg i at reset) ─────
-    rat = [domain.state(width=ptag_w, reset_value=i, name=f"rat_{i}")
+    rat = [domain.state(width=ptag_w, reset_value=i, name=f"{prefix}_rat_{i}")
            for i in range(int_logic_regs)]
 
     # ── State: FreeList circular queue ───────────────────────────
@@ -121,18 +130,18 @@ def build_rename(
         )
         for i in range(fl_size)
     ]
-    fl_head = domain.state(width=fl_ptr_w, reset_value=0, name="fl_head")
-    fl_tail = domain.state(width=fl_ptr_w, reset_value=fl_init_count, name="fl_tail")
+    fl_head = domain.state(width=fl_ptr_w, reset_value=0, name=f"{prefix}_fl_head")
+    fl_tail = domain.state(width=fl_ptr_w, reset_value=fl_init_count, name=f"{prefix}_fl_tail")
 
     # ── State: Snapshots for redirect recovery ───────────────────
-    snap_fl_head = [domain.state(width=fl_ptr_w, reset_value=0, name=f"snap_flh_{s}")
+    snap_fl_head = [domain.state(width=fl_ptr_w, reset_value=0, name=f"{prefix}_snap_flh_{s}")
                     for s in range(snapshot_num)]
     snap_rat = [
-        [domain.state(width=ptag_w, reset_value=j, name=f"srat_{s}_{j}")
+        [domain.state(width=ptag_w, reset_value=j, name=f"{prefix}_srat_{s}_{j}")
          for j in range(int_logic_regs)]
         for s in range(snapshot_num)
     ]
-    snap_next = domain.state(width=snap_id_w, reset_value=0, name="snap_next")
+    snap_next = domain.state(width=snap_id_w, reset_value=0, name=f"{prefix}_snap_next")
 
     # ── Constants ────────────────────────────────────────────────
     ZERO_P = cas(domain, m.const(0, width=ptag_w), cycle=0)
@@ -210,13 +219,14 @@ def build_rename(
 
     # ── Cycle 0: Outputs ─────────────────────────────────────────
     for i in range(rename_width):
-        m.output(f"out_valid_{i}", (in_valid[i] & rename_fire).wire)
-        m.output(f"out_pdest_{i}", mux(need_alloc[i], pdest[i], ZERO_P).wire)
-        m.output(f"out_psrc1_{i}", psrc1[i].wire)
-        m.output(f"out_psrc2_{i}", psrc2[i].wire)
-        m.output(f"out_old_pdest_{i}", old_pdest[i].wire)
+        m.output(f"{prefix}_out_valid_{i}", (in_valid[i] & rename_fire).wire)
+        m.output(f"{prefix}_out_pdest_{i}", mux(need_alloc[i], pdest[i], ZERO_P).wire)
+        m.output(f"{prefix}_out_psrc1_{i}", psrc1[i].wire)
+        m.output(f"{prefix}_out_psrc2_{i}", psrc2[i].wire)
+        m.output(f"{prefix}_out_old_pdest_{i}", old_pdest[i].wire)
 
-    m.output("can_alloc", can_alloc.wire)
+    m.output(f"{prefix}_can_alloc", can_alloc.wire)
+    _out["can_alloc"] = can_alloc
 
     # ── domain.next() → Cycle 1: State updates ──────────────────
     domain.next()
@@ -297,6 +307,7 @@ def build_rename(
     snap_next.set(mux(flush,
                       cas(domain, m.const(0, width=snap_id_w), cycle=0),
                       mux(take, nxt_snap, snap_next)))
+    return _out
 
 
 build_rename.__pycircuit_name__ = "rename"

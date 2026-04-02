@@ -63,6 +63,7 @@ def build_l2_top(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "l2top",
     addr_width: int = PC_WIDTH,
     data_width: int = XLEN,
     block_bits: int = BLOCK_BITS,
@@ -70,8 +71,12 @@ def build_l2_top(
     tag_w: int = TAG_WIDTH,
     idx_w: int = IDX_WIDTH,
     num_ways: int = L2_WAYS,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """L2 Top: simplified L2 cache interface shell."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     ptr_w = max(1, (queue_size - 1).bit_length() + 1)
     q_idx_w = max(1, (queue_size - 1).bit_length())
@@ -85,30 +90,37 @@ def build_l2_top(
     # ================================================================
 
     # ICache miss acquire
-    ic_req_valid = cas(domain, m.input("ic_req_valid", width=1), cycle=0)
-    ic_req_addr = cas(domain, m.input("ic_req_addr", width=addr_width), cycle=0)
+    ic_req_valid = (_in["ic_req_valid"] if "ic_req_valid" in _in else
+        cas(domain, m.input(f"{prefix}_ic_req_valid", width=1), cycle=0))
+    ic_req_addr = (_in["ic_req_addr"] if "ic_req_addr" in _in else
+        cas(domain, m.input(f"{prefix}_ic_req_addr", width=addr_width), cycle=0))
 
     # DCache miss acquire
-    dc_req_valid = cas(domain, m.input("dc_req_valid", width=1), cycle=0)
-    dc_req_addr = cas(domain, m.input("dc_req_addr", width=addr_width), cycle=0)
+    dc_req_valid = (_in["dc_req_valid"] if "dc_req_valid" in _in else
+        cas(domain, m.input(f"{prefix}_dc_req_valid", width=1), cycle=0))
+    dc_req_addr = (_in["dc_req_addr"] if "dc_req_addr" in _in else
+        cas(domain, m.input(f"{prefix}_dc_req_addr", width=addr_width), cycle=0))
 
     # Downstream Channel D: refill data from L3/memory
-    ds_resp_valid = cas(domain, m.input("ds_resp_valid", width=1), cycle=0)
-    ds_resp_data = cas(domain, m.input("ds_resp_data", width=block_bits), cycle=0)
-    ds_resp_source = cas(domain, m.input("ds_resp_source", width=1), cycle=0)  # 0=IC, 1=DC
+    ds_resp_valid = (_in["ds_resp_valid"] if "ds_resp_valid" in _in else
+        cas(domain, m.input(f"{prefix}_ds_resp_valid", width=1), cycle=0))
+    ds_resp_data = (_in["ds_resp_data"] if "ds_resp_data" in _in else
+        cas(domain, m.input(f"{prefix}_ds_resp_data", width=block_bits), cycle=0))
+    ds_resp_source = (_in["ds_resp_source"] if "ds_resp_source" in _in else
+        cas(domain, m.input(f"{prefix}_ds_resp_source", width=1), cycle=0))  # 0=IC, 1=DC
 
     # ================================================================
     # Request queue state
     # ================================================================
 
-    enq_ptr = domain.state(width=ptr_w, reset_value=0, name="l2_enq_ptr")
-    deq_ptr = domain.state(width=ptr_w, reset_value=0, name="l2_deq_ptr")
+    enq_ptr = domain.state(width=ptr_w, reset_value=0, name=f"{prefix}_l2_enq_ptr")
+    deq_ptr = domain.state(width=ptr_w, reset_value=0, name=f"{prefix}_l2_deq_ptr")
 
-    q_addr = [domain.state(width=addr_width, reset_value=0, name=f"l2_q_addr_{i}")
+    q_addr = [domain.state(width=addr_width, reset_value=0, name=f"{prefix}_l2_q_addr_{i}")
               for i in range(queue_size)]
-    q_source = [domain.state(width=1, reset_value=0, name=f"l2_q_src_{i}")
+    q_source = [domain.state(width=1, reset_value=0, name=f"{prefix}_l2_q_src_{i}")
                 for i in range(queue_size)]
-    q_valid = [domain.state(width=1, reset_value=0, name=f"l2_q_v_{i}")
+    q_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_l2_q_v_{i}")
                for i in range(queue_size)]
 
     enq_idx = enq_ptr[0:q_idx_w]
@@ -128,17 +140,17 @@ def build_l2_top(
     sel_source = mux(sel_ic, ZERO_1, ONE_1)  # 0=IC, 1=DC
 
     enq_fire = any_req & not_full
-    m.output("ic_req_ready", (not_full & ic_req_valid).wire)
-    m.output("dc_req_ready", (not_full & dc_req_valid & (~ic_req_valid)).wire)
+    m.output(f"{prefix}_ic_req_ready", (not_full & ic_req_valid).wire)
+    m.output(f"{prefix}_dc_req_ready", (not_full & dc_req_valid & (~ic_req_valid)).wire)
 
     # ================================================================
     # Simplified tag-based hit/miss
     # ================================================================
 
     # Tag RAM state: one tag per way for the set addressed by head-of-queue
-    tag_ram = [domain.state(width=tag_w, reset_value=0, name=f"l2_tag_{w}")
+    tag_ram = [domain.state(width=tag_w, reset_value=0, name=f"{prefix}_l2_tag_{w}")
                for w in range(num_ways)]
-    tag_valid = [domain.state(width=1, reset_value=0, name=f"l2_tv_{w}")
+    tag_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_l2_tv_{w}")
                  for w in range(num_ways)]
 
     # Read head entry for tag comparison
@@ -166,10 +178,10 @@ def build_l2_top(
     l2_hit_fire = head_is_pending & l2_hit
 
     # ── Pipeline registers: cycle 0 → 1 ──────────────────────────
-    s1_miss_w = domain.cycle(l2_miss.wire, name="l2_s1_miss")
-    s1_addr_w = domain.cycle(head_addr.wire, name="l2_s1_addr")
-    s1_src_w = domain.cycle(head_source.wire, name="l2_s1_src")
-    s1_hit_w = domain.cycle(l2_hit_fire.wire, name="l2_s1_hit")
+    s1_miss_w = domain.cycle(l2_miss.wire, name=f"{prefix}_l2_s1_miss")
+    s1_addr_w = domain.cycle(head_addr.wire, name=f"{prefix}_l2_s1_addr")
+    s1_src_w = domain.cycle(head_source.wire, name=f"{prefix}_l2_s1_src")
+    s1_hit_w = domain.cycle(l2_hit_fire.wire, name=f"{prefix}_l2_s1_hit")
 
     domain.next()
 
@@ -178,24 +190,31 @@ def build_l2_top(
     # ================================================================
 
     # Downstream Channel A: forward miss to L3/memory
-    m.output("ds_req_valid", s1_miss_w)
-    m.output("ds_req_addr", s1_addr_w)
-    m.output("ds_req_source", s1_src_w)
+    m.output(f"{prefix}_ds_req_valid", s1_miss_w)
+    _out["ds_req_valid"] = cas(domain, s1_miss_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_ds_req_addr", s1_addr_w)
+    _out["ds_req_addr"] = cas(domain, s1_addr_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_ds_req_source", s1_src_w)
+    _out["ds_req_source"] = cas(domain, s1_src_w, cycle=domain.cycle_index)
 
     # Downstream refill arrives → respond upstream
     ic_grant_valid = ds_resp_valid.wire & (~ds_resp_source.wire)
     dc_grant_valid = ds_resp_valid.wire & ds_resp_source.wire
 
-    m.output("ic_grant_valid", ic_grant_valid)
-    m.output("ic_grant_data", ds_resp_data.wire)
-    m.output("dc_grant_valid", dc_grant_valid)
-    m.output("dc_grant_data", ds_resp_data.wire)
+    m.output(f"{prefix}_ic_grant_valid", ic_grant_valid)
+    _out["ic_grant_valid"] = cas(domain, ic_grant_valid, cycle=domain.cycle_index)
+    m.output(f"{prefix}_ic_grant_data", ds_resp_data.wire)
+    _out["ic_grant_data"] = ds_resp_data
+    m.output(f"{prefix}_dc_grant_valid", dc_grant_valid)
+    _out["dc_grant_valid"] = cas(domain, dc_grant_valid, cycle=domain.cycle_index)
+    m.output(f"{prefix}_dc_grant_data", ds_resp_data.wire)
+    _out["dc_grant_data"] = ds_resp_data
 
     # Dequeue fires on hit or when refill arrives for the pending miss
     deq_fire = s1_hit_w | ds_resp_valid.wire
 
     # ── Pipeline registers: cycle 1 → 2 ──────────────────────────
-    s2_resp_w = domain.cycle(ds_resp_valid.wire, name="l2_s2_resp")
+    s2_resp_w = domain.cycle(ds_resp_valid.wire, name=f"{prefix}_l2_s2_resp")
 
     domain.next()
 
@@ -233,7 +252,9 @@ def build_l2_top(
     enq_ptr.set(mux(enq_fire, next_enq, enq_ptr))
     deq_ptr.set(mux(deq_fire_cas, next_deq, deq_ptr))
 
-    m.output("l2_busy", has_entry.wire)
+    m.output(f"{prefix}_l2_busy", has_entry.wire)
+    _out["l2_busy"] = has_entry
+    return _out
 
 
 build_l2_top.__pycircuit_name__ = "l2_top"

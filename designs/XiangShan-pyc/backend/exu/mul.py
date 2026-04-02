@@ -50,18 +50,27 @@ def build_mul(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "mul",
     data_width: int = XLEN,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Multiplier: 2-cycle pipelined multiply unit."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     op_w = MUL_OP_WIDTH
     double_w = data_width * 2
 
     # ── Cycle 0: Inputs & multiply ───────────────────────────────
-    in_valid = cas(domain, m.input("in_valid", width=1), cycle=0)
-    src1 = cas(domain, m.input("src1", width=data_width), cycle=0)
-    src2 = cas(domain, m.input("src2", width=data_width), cycle=0)
-    mul_op = cas(domain, m.input("mul_op", width=op_w), cycle=0)
+    in_valid = (_in["in_valid"] if "in_valid" in _in else
+        cas(domain, m.input(f"{prefix}_in_valid", width=1), cycle=0))
+    src1 = (_in["src1"] if "src1" in _in else
+        cas(domain, m.input(f"{prefix}_src1", width=data_width), cycle=0))
+    src2 = (_in["src2"] if "src2" in _in else
+        cas(domain, m.input(f"{prefix}_src2", width=data_width), cycle=0))
+    mul_op = (_in["mul_op"] if "mul_op" in _in else
+        cas(domain, m.input(f"{prefix}_mul_op", width=op_w), cycle=0))
 
     def _const(val, w=data_width):
         return cas(domain, m.const(val, width=w), cycle=0)
@@ -87,14 +96,17 @@ def build_mul(
     result_c0 = mux(mul_op == _op(OP_MULHSU), prod_hi, result_c0)
 
     # ── Pipeline register: cycle 0 → cycle 1 ────────────────────
-    out_valid_w = domain.cycle(in_valid.wire, name="mul_out_v")
-    out_result_w = domain.cycle(result_c0.wire, name="mul_out_r")
+    out_valid_w = domain.cycle(in_valid.wire, name=f"{prefix}_mul_out_v")
+    out_result_w = domain.cycle(result_c0.wire, name=f"{prefix}_mul_out_r")
 
     domain.next()
 
     # ── Cycle 1: Outputs ─────────────────────────────────────────
-    m.output("out_valid", out_valid_w)
-    m.output("result", out_result_w)
+    m.output(f"{prefix}_out_valid", out_valid_w)
+    _out["out_valid"] = cas(domain, out_valid_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_result", out_result_w)
+    _out["result"] = cas(domain, out_result_w, cycle=domain.cycle_index)
+    return _out
 
 
 build_mul.__pycircuit_name__ = "mul"

@@ -2,7 +2,7 @@
 
 **作者：Liao Heng**
 
-**版本：1.1**（与 `compiler/frontend/pycircuit/v5.py` 对齐）
+**版本：1.2**（与 `compiler/frontend/pycircuit/v5.py` 对齐；新增函数式层次化设计章节）
 
 > **包名**：Python 包为 **`pycircuit`**（全小写）。不要使用 `pyCircuit` 作为 import 目标。  
 > **API 细则**：以 `docs/PyCurcit V5_CYCLE_AWARE_API.md` 为准。  
@@ -13,7 +13,10 @@
 ## 目录
 
 1. [概述](#概述)
-2. [核心概念](#核心概念)
+2. [两种编程风格](#两种编程风格)
+   - [风格 A：函数式（推荐）](#风格-a函数式推荐)
+   - [风格 B：类式模块](#风格-b类式模块)
+3. [核心概念](#核心概念)
    - [Clock Domain（时钟域）](#clock-domain时钟域)
    - [Signal（信号）](#signal信号)
    - [Module（模块）](#module模块)
@@ -22,14 +25,23 @@
    - [clock_domain.push() / pop()](#clock_domainpush--pop)
    - [clock_domain.cycle()](#clock_domaincycle)
    - [Nested Module（嵌套模块）](#nested-module嵌套模块)
-3. [自动周期平衡](#自动周期平衡)
-4. [两种输出模式](#两种输出模式)
-5. [编程范例](#编程范例)
+4. [函数式层次化设计](#函数式层次化设计)
+   - [基本模式：子函数调用](#基本模式子函数调用)
+   - [信号传递与共享上下文](#信号传递与共享上下文)
+   - [子函数的周期隔离（push/pop）](#子函数的周期隔离pushpop)
+   - [子函数的周期延续](#子函数的周期延续)
+   - [命名约定：前缀隔离](#命名约定前缀隔离)
+   - [返回值模式：子函数向父函数传递结果](#返回值模式子函数向父函数传递结果)
+   - [与 m.instance() 的对比](#与-minstance-的对比)
+5. [自动周期平衡](#自动周期平衡)
+6. [两种输出模式](#两种输出模式)
+7. [编程范例](#编程范例)
    - [范例1：频率分频器（testdivider.py）](#范例1频率分频器testdividerpy)
    - [范例2：实时时钟系统（testproject.py）](#范例2实时时钟系统testprojectpy)
    - [范例3：RISC-V CPU（riscv.py）](#范例3risc-v-cpuriscvpy)
-6. [生成的电路图](#生成的电路图)
-7. [最佳实践](#最佳实践)
+   - [范例4：SoC 层次化集成（函数式风格）](#范例4soc-层次化集成函数式风格)
+8. [生成的电路图](#生成的电路图)
+9. [最佳实践](#最佳实践)
 
 ---
 
@@ -61,6 +73,89 @@ from pycircuit import (
 ```
 
 **Obsoleted**：`from pyVisualize import visualize_circuit` 及独立 `pyVisualize` 可视化链不再随本仓库维护；若需网表/MLIR 调试，请使用 `emit_mlir()` 或项目内既有仿真流程。
+
+---
+
+## 两种编程风格
+
+PyCircuit V5 支持两种风格来描述硬件电路。对于新项目（尤其是大规模 SoC），**推荐使用函数式风格**。
+
+### 风格 A：函数式（推荐）
+
+以普通 Python 函数 `build_*(m, domain, ...)` 作为模块描述单元，通过 `compile_cycle_aware()` 编译。这是 V5 的核心编程模型，也是 XiangShan-pyc 等大型项目采用的风格。
+
+```python
+from pycircuit import (
+    CycleAwareCircuit,
+    CycleAwareDomain,
+    CycleAwareSignal,
+    cas,                  # 创建 cycle-aware 信号
+    compile_cycle_aware,  # V5 编译入口
+    mux,
+    u,                    # 无符号字面量
+)
+
+def build_my_module(
+    m: CycleAwareCircuit,
+    domain: CycleAwareDomain,
+    *,
+    data_width: int = 32,
+) -> None:
+    """模块逻辑：直接操作 m 和 domain。"""
+
+    # 输入
+    data_in = cas(domain, m.input("data_in", width=data_width), cycle=0)
+    valid   = cas(domain, m.input("valid", width=1), cycle=0)
+
+    # 状态（反馈寄存器）
+    acc_r = domain.state(width=data_width, reset_value=0, name="acc")
+    acc   = cas(domain, acc_r.wire, cycle=0)
+
+    # 组合逻辑
+    acc_next = mux(valid, acc.wire + data_in.wire, acc.wire)
+
+    # 流水线寄存器 (cycle 0 → cycle 1)
+    result_w = domain.cycle(acc_next.wire, name="result_reg")
+
+    domain.next()  # 推进到 cycle 1
+
+    # 输出
+    m.output("result", result_w)
+
+    # 状态更新
+    domain.next()
+    acc_r.set(acc_next)
+
+# 编译
+if __name__ == "__main__":
+    ir = compile_cycle_aware(build_my_module, name="my_module", eager=True,
+                             data_width=16)
+    print(ir.emit_mlir())
+```
+
+**核心优势：**
+- `(m, domain)` 是贯穿上下文，所有信号操作直接在同一张信号图上
+- `domain.next()` 推进时间线，代码按时序线性叙事
+- 子函数调用天然构成层次，无需额外的例化 API
+- Python 函数就是最自然的抽象边界
+
+### 风格 B：类式模块
+
+以 `pyc_CircuitModule` 子类 + `build()` 方法作为模块描述单元。适合小型独立模块或教学场景。
+
+```python
+class MyModule(pyc_CircuitModule):
+    def __init__(self, name, clock_domain):
+        super().__init__(name, clock_domain=clock_domain)
+
+    def build(self, input1, input2):
+        with self.module(inputs=[input1, input2], description="...") as mod:
+            result = (input1 + input2) | "Sum"
+            mod.outputs = [result]
+        return result
+```
+
+> **选择建议**：函数式风格更简洁、更 Pythonic，适合大规模系统的层次化组合；类式风格提供更强的封装性，适合高复用 IP 核。本教程后续「核心概念」和「编程范例 1-3」沿用类式风格以保持向后兼容，「函数式层次化设计」章节和「范例 4」展示函数式风格。
 
 ---
 
@@ -470,6 +565,387 @@ hier_logger = pyc_CircuitLogger("circuit.txt", is_flatten=False)
 # 扁平化模式
 flat_logger = pyc_CircuitLogger("circuit.txt", is_flatten=True)
 ```
+
+---
+
+## 函数式层次化设计
+
+在大规模系统（如多核处理器）中，设计必然包含层次关系：顶层调用子系统，子系统又包含更细粒度的模块。PyCircuit V5 的函数式风格提供了一种非常自然的方式来表达这种层次——**子函数调用**。
+
+### 基本模式：子函数调用
+
+每个子模块是一个 `build_*(m, domain, ...)` 函数。父模块通过直接调用子函数来「包含」子模块的全部逻辑。子函数的信号操作会**扁平展开**到同一张信号图中。
+
+```python
+def build_alu(m, domain, *, data_width=32, prefix="alu"):
+    """ALU 子模块"""
+    op_a = cas(domain, m.input(f"{prefix}_op_a", width=data_width), cycle=0)
+    op_b = cas(domain, m.input(f"{prefix}_op_b", width=data_width), cycle=0)
+    op   = cas(domain, m.input(f"{prefix}_op", width=4), cycle=0)
+
+    add_result = op_a.wire + op_b.wire
+    sub_result = op_a.wire - op_b.wire
+    result = mux(op.wire[0], sub_result, add_result)
+
+    m.output(f"{prefix}_result", result[0:data_width])
+
+def build_regfile(m, domain, *, data_width=32, prefix="rf"):
+    """寄存器文件子模块"""
+    rs1_addr = cas(domain, m.input(f"{prefix}_rs1_addr", width=5), cycle=0)
+    rd_data  = cas(domain, m.input(f"{prefix}_rd_data", width=data_width), cycle=0)
+    # ... 寄存器读写逻辑 ...
+    m.output(f"{prefix}_rs1_data", rd_data.wire)
+
+def build_cpu_core(m, domain, *, data_width=32):
+    """CPU 核心：组合 ALU + 寄存器文件"""
+
+    # 直接调用子函数 — 子模块的逻辑展开到当前信号图
+    build_regfile(m, domain, data_width=data_width, prefix="rf")
+    build_alu(m, domain, data_width=data_width, prefix="alu")
+
+    # 跨子模块连线由父函数自行编排
+    # ...
+```
+
+**关键特性：**
+- 一行 `build_alu(m, domain, ...)` 即表达「此处包含 ALU」，意图清晰
+- 子函数直接操作同一个 `m` 和 `domain`，信号天然互通
+- 阅读者可 Ctrl+Click 跳入子函数查看实现细节
+
+### 信号传递与共享上下文
+
+函数调用方式的最大优势是 **`(m, domain)` 作为共享上下文**，信号不需要通过端口映射传递：
+
+```python
+def build_decode(m, domain, *, prefix="dec"):
+    """解码级：从 m 上直接读写信号"""
+    # 读取前级流水线寄存器（由 build_fetch 写入 m）
+    inst_w = cas(domain, m.input(f"{prefix}_inst", width=32), cycle=0)
+
+    opcode = inst_w.wire[0:7]
+    rd     = inst_w.wire[7:12]
+    rs1    = inst_w.wire[15:20]
+
+    m.output(f"{prefix}_opcode", opcode)
+    m.output(f"{prefix}_rd", rd)
+    m.output(f"{prefix}_rs1", rs1)
+
+def build_pipeline(m, domain):
+    """流水线顶层"""
+    build_fetch(m, domain, prefix="fe")
+    # fetch 的输出已经在 m 上，decode 可以直接读取
+    build_decode(m, domain, prefix="dec")
+    build_execute(m, domain, prefix="exe")
+```
+
+这种模式的信号流是**隐式共享**的：子函数通过 `m.input()`/`m.output()` 在同一个 Circuit 上声明端口，或者通过 `domain.state()`/`domain.cycle()` 创建的 Wire 对象在函数间传递。
+
+### 子函数的周期隔离（push/pop）
+
+当子函数有独立的多周期流水线，且不希望影响父函数的周期计数时，使用 `domain.push()` / `domain.pop()`：
+
+```python
+def build_bpu(m, domain, *, prefix="bpu"):
+    """分支预测单元：内部 4 级流水线，不影响调用者的周期"""
+    domain.push()  # 保存调用者的周期状态
+
+    # Stage 0: 预测请求
+    pc = cas(domain, m.input(f"{prefix}_pc", width=39), cycle=0)
+    s0_pred = pc.wire  # 简化的预测逻辑
+
+    s1_pred_w = domain.cycle(s0_pred, name=f"{prefix}_s1_pred")
+    domain.next()
+
+    # Stage 1: TAGE 预测
+    s1_taken = s1_pred_w[0]
+    s2_taken_w = domain.cycle(s1_taken, name=f"{prefix}_s2_taken")
+    domain.next()
+
+    # Stage 2: 最终预测
+    m.output(f"{prefix}_taken", s2_taken_w)
+    m.output(f"{prefix}_target", s1_pred_w)
+
+    domain.pop()  # 恢复调用者的周期状态
+
+def build_frontend(m, domain, *, prefix="fe"):
+    """前端：调用 BPU + ICache + Decode"""
+    # 调用前 domain 在 cycle 0
+    build_bpu(m, domain, prefix=f"{prefix}_bpu")
+    # 调用后仍在 cycle 0（BPU 的 push/pop 隔离了内部周期）
+
+    build_icache(m, domain, prefix=f"{prefix}_ic")
+    build_decode(m, domain, prefix=f"{prefix}_dec")
+```
+
+### 子函数的周期延续
+
+另一种模式是让子函数**延续**父函数的周期进度，适合流水线各级之间有严格顺序的场景：
+
+```python
+def build_fetch(m, domain, *, prefix="fe"):
+    """取指级（cycle 0 → cycle 1）"""
+    pc = cas(domain, m.input(f"{prefix}_pc", width=32), cycle=0)
+    inst_mem = cas(domain, m.input(f"{prefix}_imem_data", width=32), cycle=0)
+
+    s1_pc_w = domain.cycle(pc.wire, name=f"{prefix}_s1_pc")
+    s1_inst_w = domain.cycle(inst_mem.wire, name=f"{prefix}_s1_inst")
+    domain.next()  # 推进到 cycle 1
+
+    m.output(f"{prefix}_inst", s1_inst_w)
+    m.output(f"{prefix}_pc_out", s1_pc_w)
+
+def build_decode(m, domain, *, prefix="dec"):
+    """解码级（接续 cycle 1 → cycle 2）"""
+    # 此时 domain 已在 cycle 1（由 build_fetch 推进）
+    inst = cas(domain, m.input(f"{prefix}_inst", width=32), cycle=0)
+    # ... 解码逻辑 ...
+    s2_opcode_w = domain.cycle(inst.wire[0:7], name=f"{prefix}_s2_opcode")
+    domain.next()  # 推进到 cycle 2
+
+def build_pipeline(m, domain):
+    """按周期顺序组合"""
+    build_fetch(m, domain, prefix="fe")    # cycle 0 → 1
+    build_decode(m, domain, prefix="dec")  # cycle 1 → 2
+    build_execute(m, domain, prefix="exe") # cycle 2 → 3
+```
+
+> **选择建议**：如果子模块是「独立 IP」（如 BPU、缓存控制器），使用 `push()/pop()` 隔离周期。如果子模块是流水线的一个阶段，使用周期延续模式。
+
+### 命名约定：前缀隔离
+
+函数调用方式的一个注意事项是**命名冲突**：多个子函数如果在同一个 `m` 上声明相同名称的 `input`/`output`/`state`，会产生冲突。解决方法是统一使用 **前缀（prefix）** 参数：
+
+```python
+def build_load_unit(m, domain, *, prefix="ldu", data_width=64):
+    addr   = cas(domain, m.input(f"{prefix}_addr", width=data_width), cycle=0)
+    valid  = cas(domain, m.input(f"{prefix}_valid", width=1), cycle=0)
+    result = domain.state(width=data_width, reset_value=0, name=f"{prefix}_result")
+    # ...
+    m.output(f"{prefix}_data_out", result.wire)
+
+def build_store_unit(m, domain, *, prefix="stu", data_width=64):
+    addr   = cas(domain, m.input(f"{prefix}_addr", width=data_width), cycle=0)
+    valid  = cas(domain, m.input(f"{prefix}_valid", width=1), cycle=0)
+    # ... 同名 addr/valid，但因为前缀不同所以不冲突
+    m.output(f"{prefix}_done", ...)
+
+def build_memblock(m, domain, *, prefix="mem"):
+    build_load_unit(m, domain, prefix=f"{prefix}_ldu")
+    build_store_unit(m, domain, prefix=f"{prefix}_stu")
+```
+
+**推荐命名规则：**
+
+| 元素 | 模式 | 示例 |
+|------|------|------|
+| 输入端口 | `{prefix}_{name}` | `fe_bpu_pc`, `be_rob_idx` |
+| 输出端口 | `{prefix}_{name}` | `fe_dec_valid_0`, `mem_ldu_data` |
+| 状态寄存器 | `{prefix}_{name}` | `fe_fetch_pc`, `be_stall` |
+| 流水线寄存器 | `{prefix}_s{N}_{name}` | `fe_s1_inst`, `fe_s2_data` |
+
+### 显式信号传递规范
+
+子函数调用时，信号通过 **Python 函数参数和返回值** 在父子函数间传递。这是推荐的信号互联方式，因为它让数据流清晰可追踪，并且 **完整保留 `CycleAwareSignal` 的 cycle 属性**。
+
+#### 核心原则
+
+1. **输入信号**：父函数将自己的 `CycleAwareSignal` 作为参数传给子函数。子函数收到后直接使用——信号的 `.wire`（硬件线网）和 `cycle`（产生周期）都保持不变。
+2. **输出信号**：子函数将内部产生的 `CycleAwareSignal` 通过返回值传回父函数。返回的信号天然携带在子函数中被赋值时的周期信息，父函数可以直接引用。
+3. **双模兼容**：每个子函数既可以独立编译（`inputs=None` 时回退到 `m.input()`），也可以被父函数组合调用（`inputs` 传入信号）。
+
+#### 子函数签名规范
+
+```python
+def build_xxx(
+    m: CycleAwareCircuit,
+    domain: CycleAwareDomain,
+    *,
+    prefix: str = "xxx",
+    # 配置参数
+    width: int = 64,
+    # 显式信号输入（None = 独立模式，回退到 m.input）
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
+    """模块描述。"""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
+    # 双模输入：优先使用传入信号，否则创建独立端口
+    a = _in["a"] if "a" in _in else cas(domain, m.input(f"{prefix}_a", width=width), cycle=0)
+    b = _in["b"] if "b" in _in else cas(domain, m.input(f"{prefix}_b", width=width), cycle=0)
+
+    # 内部逻辑
+    result = a + b                      # result 是 CycleAwareSignal，cycle=0
+
+    domain.next()
+
+    pipe_out_w = domain.cycle(result.wire, name=f"{prefix}_pipe")
+    pipe_out = cas(domain, pipe_out_w, cycle=1)  # 现在是 cycle 1
+
+    # 输出：同时写 m.output（独立模式端口）和 _out（组合模式返回值）
+    m.output(f"{prefix}_result", pipe_out.wire)
+    _out["result"] = pipe_out           # ← CycleAwareSignal, cycle=1
+
+    return _out
+```
+
+#### 父函数调用模式
+
+```python
+def build_parent(m, domain, *, prefix="parent", width=64,
+                 inputs=None):
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
+    # 父函数自己的 cycle 0 信号
+    x = _in["x"] if "x" in _in else cas(domain, m.input(f"{prefix}_x", width=width), cycle=0)
+
+    # 调用子函数 —— 传入 CAS 信号，接收 CAS 信号
+    domain.push()
+    sub_out = build_xxx(m, domain, prefix=f"{prefix}_sub",
+                        width=width,
+                        inputs={"a": x, "b": x})
+    domain.pop()
+
+    # sub_out["result"] 是 CycleAwareSignal，cycle=1（来自子函数内部）
+    # 父函数知道该信号在子函数中产生于 cycle 1
+    final = sub_out["result"]           # 直接使用，cycle 信息完整
+
+    m.output(f"{prefix}_final", final.wire)
+    _out["final"] = final
+    return _out
+```
+
+#### Cycle 属性传递详解
+
+```
+父函数 cycle 0          子函数（push 后 cycle 重置）         父函数 pop 后
+──────────────          ────────────────────────          ──────────────
+x (cycle=0)  ─传入→   a = _in["a"]  (cycle=0)
+                       ↓ 内部计算
+                       result = a + b  (cycle=0)
+                       ↓ domain.next()
+                       pipe_out  (cycle=1)
+                       ↓ 返回
+              ←返回──  _out["result"] = pipe_out (cycle=1)
+                                                          final (cycle=1)
+```
+
+**关键点**：
+- 传入的 `CycleAwareSignal` 保留原始 cycle，子函数看到的 cycle 与父函数赋予的一致
+- 子函数返回的 `CycleAwareSignal` 携带产生时的 cycle，父函数可据此判断信号的时序位置
+- `domain.push()/pop()` 隔离子函数内部的 `domain.next()` 对父函数周期计数的影响，但**不改变信号本身的 cycle 值**
+
+#### 输入信号的双模写法
+
+```python
+# ✅ 推荐：dict 查找 + 回退
+a = _in["a"] if "a" in _in else cas(domain, m.input(f"{prefix}_a", width=W), cycle=0)
+
+# ❌ 不推荐：用 or（CAS 信号可能为零值，被误判为 falsy）
+a = _in.get("a") or cas(domain, m.input(...), cycle=0)
+```
+
+#### 输出信号的收集
+
+```python
+# 模式 1：输出是 CAS 信号的 .wire
+result = mux(cond, a, b)           # CAS 信号
+m.output(f"{prefix}_result", result.wire)
+_out["result"] = result            # ← 存 CAS 信号（含 cycle）
+
+# 模式 2：输出是流水线寄存器的 wire（来自 domain.cycle）
+out_w = domain.cycle(val.wire, name=f"{prefix}_pipe")
+out_cas = cas(domain, out_w, cycle=domain.cycle_index)
+m.output(f"{prefix}_out", out_w)
+_out["out"] = out_cas              # ← 包装成 CAS 再存（含 cycle）
+```
+
+#### 完整范例：BPU 调用 ITTAGE
+
+```python
+def build_ittage(m, domain, *, prefix="ittage", pc_width=39,
+                 inputs=None) -> dict[str, CycleAwareSignal]:
+    _in = inputs or {}
+    _out = {}
+
+    # 双模输入
+    s0_pc = _in["s0_pc"] if "s0_pc" in _in else \
+        cas(domain, m.input(f"{prefix}_s0_pc", width=pc_width), cycle=0)
+    global_hist = _in["global_hist"] if "global_hist" in _in else \
+        cas(domain, m.input(f"{prefix}_global_hist", width=32), cycle=0)
+
+    # ... ITTAGE 内部多表查找逻辑 ...
+    # target 在 cycle 1 产生
+    domain.next()
+    target = cas(domain, target_w, cycle=1)
+
+    m.output(f"{prefix}_target", target.wire)
+    _out["target"] = target          # cycle=1
+
+    m.output(f"{prefix}_valid", valid.wire)
+    _out["valid"] = valid            # cycle=1
+
+    return _out
+
+def build_bpu(m, domain, *, prefix="bpu", pc_width=39,
+              inputs=None) -> dict[str, CycleAwareSignal]:
+    _in = inputs or {}
+    _out = {}
+
+    # BPU cycle 0：PC 生成
+    s0_pc = _in["s0_pc"] if "s0_pc" in _in else \
+        cas(domain, m.input(f"{prefix}_s0_pc", width=pc_width), cycle=0)
+    global_hist = cas(domain, m.input(f"{prefix}_ghist", width=32), cycle=0)
+
+    # 调用 ITTAGE —— 显式传入 CAS 信号
+    domain.push()
+    ittage_out = build_ittage(m, domain, prefix=f"{prefix}_ittage",
+                              pc_width=pc_width,
+                              inputs={
+                                  "s0_pc": s0_pc,         # cycle=0, 传入
+                                  "global_hist": global_hist,
+                              })
+    domain.pop()
+
+    # ittage_out["target"] 是 CAS 信号, cycle=1
+    # BPU 在 s3 阶段使用它
+    s3_target = ittage_out["target"]  # cycle=1，来自 ITTAGE 内部
+
+    _out["pred_target"] = s3_target
+    return _out
+```
+
+#### 与隐式传递的对比
+
+| 维度 | 显式传递（推荐） | 隐式传递（`m.input`/`m.output`） |
+|------|-----------------|-------------------------------|
+| **数据流** | 函数参数和返回值，一目了然 | 通过字符串名称间接关联 |
+| **Cycle 信息** | CAS 信号天然携带，编译器可校验 | 需要人工确保 cycle 匹配 |
+| **类型安全** | IDE 可推断 `dict[str, CAS]` | 字符串 key 无法静态检查 |
+| **重构友好** | 改函数签名，编译器/IDE 立刻报错 | 改端口名称，只有运行时才报错 |
+| **独立编译** | `inputs=None` 回退到 `m.input()` | 始终可独立编译 |
+| **适用场景** | 父子函数间紧耦合信号 | 顶层模块对外端口 |
+
+> **规范总结**：所有 `build_*` 函数应采用 `inputs: dict[str, CycleAwareSignal] | None = None` 参数接收输入信号，返回 `dict[str, CycleAwareSignal]` 传递输出信号。`m.input()`/`m.output()` 仅作为独立编译的回退通道保留。
+
+### 与 m.instance() 的对比
+
+PyCircuit 同时提供 `m.instance()` API 用于结构化子模块例化（生成 MLIR `pyc.instance` op，保留模块边界到 Verilog 输出）。以下对比两种方法：
+
+| 维度 | 子函数调用 | `m.instance()` |
+|------|-----------|----------------|
+| **代码量** | 一行调用 | 需要显式列举所有端口绑定 |
+| **信号传递** | 共享 `m`/`domain`，天然可见 | 端口映射，接口变更需同步改两处 |
+| **V5 契合度** | 完美 — `(m, domain)` 贯穿上下文 | 需要 `DesignContext`，打破单 domain 流 |
+| **时序叙事** | 保持连续 — `domain.next()` 按顺序推进 | 子模块是黑盒，时序关系不直观 |
+| **命名空间** | 需手动前缀管理 | 天然隔离 |
+| **Verilog 层次** | 扁平输出，需后处理生成 wrapper | 原生层次化输出 |
+| **跨模块优化** | 综合工具可全局优化 | 模块边界可能阻碍优化 |
+| **增量编译** | 修改子函数需重编父模块 | 只需重编修改过的子模块 |
+| **适用场景** | **系统内部组合**（推荐） | 第三方 IP 核复用 |
+
+> **结论**：对于用 PyCircuit 从头构建的系统，子函数调用是更自然、更高效的层次化手段。`m.instance()` 保留为集成外部 IP 或需要严格模块边界隔离的场景。
 
 ---
 
@@ -914,6 +1390,157 @@ class ALU(pyc_CircuitModule):
 
 ---
 
+### 范例4：SoC 层次化集成（函数式风格）
+
+这个范例展示如何用函数调用方式构建一个简化的 SoC，体现层次关系：
+
+```
+SoC Top
+├── CPU Core
+│   ├── Frontend (fetch + decode)
+│   └── Backend (execute + writeback)
+├── Memory Controller
+└── UART Peripheral
+```
+
+#### 叶子模块：Frontend
+
+```python
+from pycircuit import (
+    CycleAwareCircuit, CycleAwareDomain, cas,
+    compile_cycle_aware, mux, u,
+)
+
+def build_frontend(m, domain, *, pc_width=32, inst_width=32, prefix="fe"):
+    """Frontend: 2-stage fetch + decode pipeline."""
+
+    # ── Cycle 0: Fetch ──
+    redirect_valid  = cas(domain, m.input(f"{prefix}_redirect_valid", width=1), cycle=0)
+    redirect_target = cas(domain, m.input(f"{prefix}_redirect_target", width=pc_width), cycle=0)
+
+    pc_r = domain.state(width=pc_width, reset_value=0, name=f"{prefix}_pc")
+    pc   = cas(domain, pc_r.wire, cycle=0)
+
+    FOUR = cas(domain, m.const(4, width=pc_width), cycle=0)
+    next_pc = mux(redirect_valid, redirect_target, pc.wire + FOUR.wire)
+
+    inst_mem_data = cas(domain, m.input(f"{prefix}_imem_data", width=inst_width), cycle=0)
+    m.output(f"{prefix}_imem_addr", pc.wire)
+
+    s1_pc_w   = domain.cycle(pc.wire, name=f"{prefix}_s1_pc")
+    s1_inst_w = domain.cycle(inst_mem_data.wire, name=f"{prefix}_s1_inst")
+    domain.next()
+
+    # ── Cycle 1: Decode ──
+    opcode = s1_inst_w[0:7]
+    rd     = s1_inst_w[7:12]
+    rs1    = s1_inst_w[15:20]
+    rs2    = s1_inst_w[20:25]
+
+    m.output(f"{prefix}_dec_valid", cas(domain, m.const(1, width=1), cycle=0).wire)
+    m.output(f"{prefix}_dec_opcode", opcode)
+    m.output(f"{prefix}_dec_rd", rd)
+    m.output(f"{prefix}_dec_rs1", rs1)
+    m.output(f"{prefix}_dec_rs2", rs2)
+    m.output(f"{prefix}_dec_pc", s1_pc_w)
+
+    # 状态更新
+    domain.next()
+    pc_r.set(next_pc)
+
+    return s1_pc_w, opcode, rd, rs1, rs2
+```
+
+#### 叶子模块：Backend
+
+```python
+def build_backend(m, domain, *, data_width=32, prefix="be"):
+    """Backend: execute + writeback (simplified)."""
+
+    op_a   = cas(domain, m.input(f"{prefix}_op_a", width=data_width), cycle=0)
+    op_b   = cas(domain, m.input(f"{prefix}_op_b", width=data_width), cycle=0)
+    alu_op = cas(domain, m.input(f"{prefix}_alu_op", width=4), cycle=0)
+
+    ZERO4 = cas(domain, m.const(0, width=4), cycle=0)
+    ONE4  = cas(domain, m.const(1, width=4), cycle=0)
+
+    add_r = op_a.wire + op_b.wire
+    sub_r = op_a.wire - op_b.wire
+    result = mux(alu_op.wire == ONE4.wire, sub_r, add_r)
+
+    wb_data_w = domain.cycle(result[0:data_width], name=f"{prefix}_wb_data")
+    domain.next()
+
+    m.output(f"{prefix}_wb_data", wb_data_w)
+    m.output(f"{prefix}_wb_valid", cas(domain, m.const(1, width=1), cycle=0).wire)
+
+    return wb_data_w
+```
+
+#### 中间层：CPU Core（组合 Frontend + Backend）
+
+```python
+def build_cpu_core(m, domain, *, data_width=32, pc_width=32, prefix="cpu"):
+    """CPU Core = Frontend + Backend，通过子函数调用组合。"""
+
+    # Frontend: fetch + decode (cycle 0 → 1)
+    domain.push()
+    pc, opcode, rd, rs1, rs2 = build_frontend(
+        m, domain, pc_width=pc_width, prefix=f"{prefix}_fe")
+    domain.pop()
+
+    # Backend: execute + writeback (独立周期)
+    domain.push()
+    wb_data = build_backend(
+        m, domain, data_width=data_width, prefix=f"{prefix}_be")
+    domain.pop()
+
+    m.output(f"{prefix}_commit_pc", pc)
+```
+
+#### 顶层：SoC（组合 CPU + Memory + UART）
+
+```python
+def build_uart(m, domain, *, prefix="uart"):
+    """UART peripheral stub."""
+    tx_data = cas(domain, m.input(f"{prefix}_tx_data", width=8), cycle=0)
+    tx_valid = cas(domain, m.input(f"{prefix}_tx_valid", width=1), cycle=0)
+    busy_r = domain.state(width=1, reset_value=0, name=f"{prefix}_busy")
+    m.output(f"{prefix}_tx_ready", ~cas(domain, busy_r.wire, cycle=0).wire)
+
+def build_soc_top(m, domain, *, data_width=32, pc_width=32):
+    """SoC Top: CPU Core + Memory Controller + UART"""
+
+    # ── CPU Core ──
+    build_cpu_core(m, domain,
+                   data_width=data_width, pc_width=pc_width, prefix="cpu")
+
+    # ── Memory Controller ──
+    build_mem_ctrl(m, domain, data_width=data_width, prefix="memctrl")
+
+    # ── UART ──
+    build_uart(m, domain, prefix="uart")
+
+build_soc_top.__pycircuit_name__ = "soc_top"
+
+if __name__ == "__main__":
+    ir = compile_cycle_aware(
+        build_soc_top, name="soc_top", eager=True,
+        data_width=32, pc_width=32,
+    )
+    print(ir.emit_mlir())
+```
+
+#### 设计要点
+
+1. **层次清晰**：`build_soc_top` → `build_cpu_core` → `build_frontend` / `build_backend`，函数调用链即设计层次
+2. **周期管理**：`push()/pop()` 确保各子系统周期独立，不互相干扰
+3. **命名隔离**：前缀 `cpu_fe_*` / `cpu_be_*` / `uart_*` 避免端口冲突
+4. **灵活参数化**：`data_width` / `pc_width` 通过 Python 函数参数传递，可全局配置
+5. **渐进开发**：每个 `build_*` 可以独立 `compile_cycle_aware(build_frontend, ...)` 编译和测试
+
+---
+
 ## 生成的电路图
 
 **Obsoleted**：下文所述基于 **`pyVisualize`** 的 PDF/PNG 流程已废弃，仓库内不再提供该依赖。历史示例中的示意图文件名仍可作为概念参考；当前请以 **`CycleAwareCircuit.emit_mlir()`**、仿真波形或外部综合工具为准。
@@ -949,48 +1576,74 @@ class ALU(pyc_CircuitModule):
 
 ### 1. 模块设计原则
 
+**函数式风格（推荐）：**
+
+```python
+def build_my_module(m, domain, *, data_width=32, prefix="mod"):
+    """模块签名：(m, domain, *, 参数...) -> 返回值（可选）"""
+    inp = cas(domain, m.input(f"{prefix}_data_in", width=data_width), cycle=0)
+
+    acc_r = domain.state(width=data_width, reset_value=0, name=f"{prefix}_acc")
+    acc = cas(domain, acc_r.wire, cycle=0)
+    acc_next = acc.wire + inp.wire
+
+    m.output(f"{prefix}_result", acc_next[0:data_width])
+
+    domain.next()
+    acc_r.set(acc_next)
+
+build_my_module.__pycircuit_name__ = "my_module"
+```
+
+**类式风格（适合独立 IP）：**
+
 ```python
 class GoodModule(pyc_CircuitModule):
     def __init__(self, name, clock_domain, param1, param2):
         super().__init__(name, clock_domain=clock_domain)
-        self.param1 = param1  # 保存配置参数
+        self.param1 = param1
         self.param2 = param2
-        
+
     def build(self, input1, input2):
-        # 使用 with 语句管理模块上下文
         with self.module(
             inputs=[input1, input2],
             description=f"Module with param1={self.param1}"
         ) as mod:
-            # 模块逻辑
             result = ...
-            
-            # 明确设置输出
             mod.outputs = [result]
-        
-        return result  # 返回输出信号供父模块使用
+        return result
 ```
 
 ### 2. 信号命名规范
 
 ```python
-# ✓ 好的命名
+# ✓ 函数式风格：用前缀避免冲突
+addr = cas(domain, m.input(f"{prefix}_addr", width=32), cycle=0)
+valid_r = domain.state(width=1, reset_value=0, name=f"{prefix}_valid")
+s1_data_w = domain.cycle(data.wire, name=f"{prefix}_s1_data")
+
+# ✓ 类式风格：用描述辅助调试
 counter_next = (counter + 1) | "Counter next value"
 data_valid_reg = self.clock_domain.cycle(data_valid) | "Registered valid"
 
-# ✗ 避免的命名
-x = (a + b) | "Some signal"  # 太简短
-temp = result | ""           # 无描述
+# ✗ 避免
+x = (a + b) | "Some signal"
+temp = result | ""
 ```
 
 ### 3. 周期管理
 
 ```python
 # ✓ 明确标记周期边界
-self.clock_domain.next()  # Cycle N -> N+1
+domain.next()  # Cycle N -> N+1
 
-# 使用 cycle() 创建寄存器（用 name= 标注调试名；返回 Wire）
-registered_data = self.clock_domain.cycle(data, reset_value=0, name="registered_data")
+# ✓ 使用 cycle() 创建流水线寄存器
+registered_data = domain.cycle(data.wire, reset_value=0, name="reg_data")
+
+# ✓ 使用 state() 创建反馈寄存器
+counter_r = domain.state(width=8, reset_value=0, name="counter")
+# ... 在后续周期中 ...
+counter_r.set(counter_next)
 
 # ✓ 理解自动周期平衡
 # 当组合不同周期的信号时，系统会自动插入延迟
@@ -998,16 +1651,30 @@ registered_data = self.clock_domain.cycle(data, reset_value=0, name="registered_
 
 ### 4. 层次化设计
 
+**推荐：子函数调用（函数式风格）**
+
 ```python
-# ✓ 合理拆分模块
+def build_soc(m, domain, *, data_width=32):
+    # 子系统通过函数调用组合，前缀隔离命名空间
+    build_cpu_core(m, domain, data_width=data_width, prefix="cpu")
+    build_mem_ctrl(m, domain, data_width=data_width, prefix="memctrl")
+    build_uart(m, domain, prefix="uart")
+```
+
+**适用原则：**
+- 系统内部子模块 → 子函数调用（简洁、灵活）
+- 独立子系统需要周期隔离 → `domain.push()` / `domain.pop()`
+- 流水线各级按顺序 → 子函数延续 `domain.next()`
+- 第三方 IP 核 → `m.instance()`
+
+**类式风格（向后兼容）：**
+
+```python
 class TopLevel(pyc_CircuitModule):
     def build(self, ...):
         with self.module(...) as mod:
-            # 实例化功能子模块
             decoder = Decoder("decoder", self.clock_domain)
             alu = ALU("alu", self.clock_domain)
-            
-            # 连接子模块
             decoded = decoder.build(instruction)
             result = alu.build(op_a, op_b, alu_op)
 ```
@@ -1015,18 +1682,65 @@ class TopLevel(pyc_CircuitModule):
 ### 5. 调试技巧
 
 ```python
-# 使用描述帮助调试
-signal_name = expression | "Descriptive comment for debugging"
+# 单独编译子模块进行隔离测试
+if __name__ == "__main__":
+    ir = compile_cycle_aware(build_frontend, name="frontend", eager=True,
+                             pc_width=16, inst_width=32, prefix="fe")
+    print(ir.emit_mlir())
 
-# 检查生成的 .txt 文件确认：
-# - 信号周期是否正确
-# - 自动周期平衡是否如预期
-# - 模块层次是否正确
+# 检查 MLIR 输出确认：
+#   - 信号名和位宽是否正确
+#   - 寄存器和反馈环路是否如预期
+# 检查 Verilog 输出确认：
+#   - 端口列表、模块名是否正确
+#   - 综合结果是否通过
 ```
+
+### 6. 大型项目组织
+
+```
+designs/my_soc/
+├── top/
+│   ├── parameters.py        # 全局参数（位宽、深度等）
+│   ├── soc_top.py           # build_soc_top：顶层
+│   └── cpu_core.py          # build_cpu_core：中间层
+├── frontend/
+│   ├── frontend.py          # build_frontend
+│   ├── bpu/
+│   │   └── bpu.py           # build_bpu
+│   └── icache/
+│       └── icache.py        # build_icache
+├── backend/
+│   ├── backend.py           # build_backend
+│   └── ctrlblock/
+│       └── ctrlblock.py     # build_ctrlblock
+├── tests/
+│   ├── test_bpu.py          # 单独编译测试 BPU
+│   ├── test_frontend.py     # 单独编译测试 Frontend
+│   └── test_integration.py  # 集成测试
+└── build_verilog.py          # 构建脚本
+```
+
+**原则：**
+- 每个 `build_*` 函数独占一个文件，文件名 = 模块名
+- 全局参数集中在 `parameters.py`，通过 `from top.parameters import *` 引入
+- 每个 `build_*` 可独立 `compile_cycle_aware(...)` 编译测试
+- 构建脚本负责批量编译 + Verilog 层次化组装
 
 ---
 
 ## 附录：API 参考
+
+### CycleAwareCircuit（V5 顶层电路）
+
+| 方法 | 说明 |
+|------|------|
+| `CycleAwareCircuit(name)` | 创建顶层电路对象 |
+| `create_domain(name, ...)` | 创建时钟域，返回 `CycleAwareDomain` |
+| `input(name, *, width)` | 声明输入端口 |
+| `output(name, signal)` | 声明输出端口 |
+| `const(value, *, width)` | 创建常量信号 |
+| `emit_mlir()` | 导出 MLIR 文本 |
 
 ### CycleAwareDomain（`pyc_ClockDomain` 为其别名）
 
@@ -1036,12 +1750,40 @@ signal_name = expression | "Descriptive comment for debugging"
 | `create_reset()` | 返回 **i1** `Wire`（**1** = 复位有效），经 `pyc.reset_active` 从 `!pyc.reset` 端口导出，可用于 `mux` |
 | `create_signal(name, *, width)` | 创建输入端口；`width` 关键字必选 |
 | `create_const(value, *, width, name="")` | 常量 |
-| `state(*, width, reset_value=0, name="")` | 反馈寄存器（`StateSignal`） |
+| `state(*, width, reset_value=0, name="")` | 反馈寄存器（`StateSignal`），需在后续周期调用 `.set(value)` |
 | `next()` / `prev()` | 推进 / 回退逻辑 occurrence 周期 |
-| `push()` / `pop()` | 周期栈（需配对） |
+| `push()` / `pop()` | 周期栈（需配对）；子函数用于隔离内部周期操作 |
 | `cycle(sig, reset_value=None, name="")` | 单级寄存器，返回 `q` 的 `Wire` |
 
-### pyc_CircuitModule
+### compile_cycle_aware（V5 编译入口）
+
+```python
+ir = compile_cycle_aware(
+    build_fn,          # build_*(m, domain, ...) 函数
+    name="module_name",
+    eager=True,        # True: 立即编译; False: JIT 延迟编译
+    **kwargs,          # 传递给 build_fn 的关键字参数
+)
+ir.emit_mlir()         # 导出 MLIR
+```
+
+### cas（创建 cycle-aware 信号）
+
+```python
+sig = cas(domain, wire_or_input, cycle=0)
+# 将一个 Wire 对象包装为带周期信息的 CycleAwareSignal
+# cycle=0 表示当前周期，cycle=N 表示第 N 个周期
+```
+
+### mux（多路选择器）
+
+```python
+result = mux(condition, true_value, false_value)
+# condition: 1-bit 信号
+# 自动对齐 condition / true / false 的周期
+```
+
+### pyc_CircuitModule（类式风格）
 
 | 方法 | 说明 |
 |------|------|
@@ -1061,11 +1803,13 @@ signal_name = expression | "Descriptive comment for debugging"
 
 | 函数 | 说明 |
 |------|------|
-| `signal[high:low](value=...)` | 创建信号 |
+| `signal[high:low](value=...)` | 创建信号（类式风格） |
 | `mux(condition, true_val, false_val)` | 多路选择器 |
+| `cas(domain, wire, cycle=N)` | 创建 cycle-aware 信号（函数式风格） |
+| `u(value, width)` | 无符号字面量 |
 | `log(signal)` | 记录信号（用于调试） |
 
 ---
 
-**Copyright © 2024 Liao Heng. All rights reserved.**
+**Copyright © 2024-2026 Liao Heng. All rights reserved.**
 

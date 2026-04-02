@@ -54,14 +54,19 @@ def build_sc(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "sc",
     table_infos: list[tuple[int, int]] = SC_TABLE_INFOS,
     ctr_width: int = SC_CTR_WIDTH,
     threshold_init: int = SC_THRESHOLD_INIT,
     threshold_width: int = SC_THRESHOLD_WIDTH,
     sum_width: int = SUM_WIDTH,
     pc_width: int = PC_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """SC: statistical corrector for TAGE predictions."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
     num_tables = len(table_infos)
     ctr_min_signed = -(1 << (ctr_width - 1))
     ctr_max_signed = (1 << (ctr_width - 1)) - 1
@@ -72,18 +77,30 @@ def build_sc(
     hist_w = hist_len_max
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────────
-    s0_fire = cas(domain, m.input("s0_fire", width=1), cycle=0)
-    s0_pc = cas(domain, m.input("s0_pc", width=pc_width), cycle=0)
-    global_hist = cas(domain, m.input("global_hist", width=hist_w), cycle=0)
-    tage_taken = cas(domain, m.input("tage_taken", width=1), cycle=0)
-    tage_provider_weak = cas(domain, m.input("tage_provider_weak", width=1), cycle=0)
+    s0_fire = (_in["s0_fire"] if "s0_fire" in _in else
+        cas(domain, m.input(f"{prefix}_s0_fire", width=1), cycle=0))
+    s0_pc = (_in["s0_pc"] if "s0_pc" in _in else
+        cas(domain, m.input(f"{prefix}_s0_pc", width=pc_width), cycle=0))
+    global_hist = (_in["global_hist"] if "global_hist" in _in else
+        cas(domain, m.input(f"{prefix}_global_hist", width=hist_w), cycle=0))
+    tage_taken = (_in["tage_taken"] if "tage_taken" in _in else
+        cas(domain, m.input(f"{prefix}_tage_taken", width=1), cycle=0))
+    tage_provider_weak = (_in["tage_provider_weak"] if "tage_provider_weak" in _in else
+        cas(domain, m.input(f"{prefix}_tage_provider_weak", width=1), cycle=0))
 
-    train_valid = cas(domain, m.input("train_valid", width=1), cycle=0)
-    train_pc = cas(domain, m.input("train_pc", width=pc_width), cycle=0)
-    train_hist = cas(domain, m.input("train_hist", width=hist_w), cycle=0)
-    train_taken = cas(domain, m.input("train_taken", width=1), cycle=0)
-    train_sc_pred = cas(domain, m.input("train_sc_pred", width=1), cycle=0)
-    train_sc_used = cas(domain, m.input("train_sc_used", width=1), cycle=0)
+    train_valid = (_in["train_valid"] if "train_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_train_valid", width=1), cycle=0))
+    train_pc = (_in["train_pc"] if "train_pc" in _in else
+        cas(domain, m.input(f"{prefix}_train_pc", width=pc_width), cycle=0))
+    train_hist = (_in["train_hist"] if "train_hist" in _in else
+        cas(domain, m.input(f"{prefix}_train_hist", width=hist_w), cycle=0))
+    train_taken = (_in["train_taken"] if "train_taken" in _in else
+        cas(domain, m.input(f"{prefix}_train_taken", width=1), cycle=0))
+    train_sc_pred = (_in["train_sc_pred"] if "train_sc_pred" in _in else
+        cas(domain, m.input(f"{prefix}_train_sc_pred", width=1), cycle=0))
+    train_sc_used = (_in["train_sc_used"] if "train_sc_used" in _in else
+        cas(domain, m.input(f"{prefix}_train_sc_used", width=1), cycle=0))
 
     zero1 = cas(domain, m.const(0, width=1), cycle=0)
     one1 = cas(domain, m.const(1, width=1), cycle=0)
@@ -91,13 +108,13 @@ def build_sc(
     # ── Counter table storage ────────────────────────────────────────
     tbl_ctrs = []
     for t_idx, (tbl_size, _hl) in enumerate(table_infos):
-        ctrs = [domain.state(width=ctr_width, reset_value=0, name=f"sc{t_idx}_c_{i}")
+        ctrs = [domain.state(width=ctr_width, reset_value=0, name=f"{prefix}_sc{t_idx}_c_{i}")
                 for i in range(tbl_size)]
         tbl_ctrs.append(ctrs)
 
     # ── Dynamic threshold ────────────────────────────────────────────
-    threshold_r = domain.state(width=threshold_width, reset_value=threshold_init, name="sc_thr")
-    thr_tc_r = domain.state(width=6, reset_value=0, name="sc_thr_tc")
+    threshold_r = domain.state(width=threshold_width, reset_value=threshold_init, name=f"{prefix}_sc_thr")
+    thr_tc_r = domain.state(width=6, reset_value=0, name=f"{prefix}_sc_thr_tc")
     thr_val = cas(domain, threshold_r.wire, cycle=0)
     tc_val = cas(domain, thr_tc_r.wire, cycle=0)
 
@@ -145,9 +162,12 @@ def build_sc(
 
     sc_pred = mux(sc_override, ~tage_taken, tage_taken)
 
-    m.output("sc_pred_taken", sc_pred.wire)
-    m.output("sc_override", sc_override.wire)
-    m.output("sc_sum", sum_acc.wire)
+    m.output(f"{prefix}_sc_pred_taken", sc_pred.wire)
+    _out["sc_pred_taken"] = sc_pred
+    m.output(f"{prefix}_sc_override", sc_override.wire)
+    _out["sc_override"] = sc_override
+    m.output(f"{prefix}_sc_sum", sum_acc.wire)
+    _out["sc_sum"] = sum_acc
 
     # ── domain.next() → Cycle 1: Training ────────────────────────────
     domain.next()
@@ -204,6 +224,7 @@ def build_sc(
     new_thr = mux(tc_overflow & train_mispred, thr_inc,
                   mux(tc_underflow & (~train_mispred), thr_dec, thr_val))
     threshold_r.set(mux(we_tc, new_thr, thr_val))
+    return _out
 
 
 build_sc.__pycircuit_name__ = "sc"

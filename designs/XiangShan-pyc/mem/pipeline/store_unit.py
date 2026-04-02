@@ -38,43 +38,60 @@ def build_store_unit(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "stu",
     data_width: int = XLEN,
     addr_width: int = PC_WIDTH,
     rob_idx_width: int = ROB_IDX_WIDTH,
     sq_idx_width: int = SQ_IDX_WIDTH,
     ppn_width: int = 24,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Store Unit: 2-stage pipeline (addr-gen/TLB → store queue write)."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     # ================================================================
     # s0 — Address Generation + TLB request
     # ================================================================
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
 
-    issue_valid = cas(domain, m.input("issue_valid", width=1), cycle=0)
-    issue_addr = cas(domain, m.input("issue_addr", width=addr_width), cycle=0)
-    issue_data = cas(domain, m.input("issue_data", width=data_width), cycle=0)
-    issue_rob_idx = cas(domain, m.input("issue_rob_idx", width=rob_idx_width), cycle=0)
-    issue_sq_idx = cas(domain, m.input("issue_sq_idx", width=sq_idx_width), cycle=0)
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
+
+    issue_valid = (_in["issue_valid"] if "issue_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_issue_valid", width=1), cycle=0))
+    issue_addr = (_in["issue_addr"] if "issue_addr" in _in else
+        cas(domain, m.input(f"{prefix}_issue_addr", width=addr_width), cycle=0))
+    issue_data = (_in["issue_data"] if "issue_data" in _in else
+        cas(domain, m.input(f"{prefix}_issue_data", width=data_width), cycle=0))
+    issue_rob_idx = (_in["issue_rob_idx"] if "issue_rob_idx" in _in else
+        cas(domain, m.input(f"{prefix}_issue_rob_idx", width=rob_idx_width), cycle=0))
+    issue_sq_idx = (_in["issue_sq_idx"] if "issue_sq_idx" in _in else
+        cas(domain, m.input(f"{prefix}_issue_sq_idx", width=sq_idx_width), cycle=0))
 
     # TLB response (arrives in s1)
-    tlb_resp_hit = cas(domain, m.input("tlb_resp_hit", width=1), cycle=0)
-    tlb_resp_ppn = cas(domain, m.input("tlb_resp_ppn", width=ppn_width), cycle=0)
+    tlb_resp_hit = (_in["tlb_resp_hit"] if "tlb_resp_hit" in _in else
+        cas(domain, m.input(f"{prefix}_tlb_resp_hit", width=1), cycle=0))
+    tlb_resp_ppn = (_in["tlb_resp_ppn"] if "tlb_resp_ppn" in _in else
+        cas(domain, m.input(f"{prefix}_tlb_resp_ppn", width=ppn_width), cycle=0))
 
     s0_fire = issue_valid & (~flush)
     s0_vpn = issue_addr[12:12 + (addr_width - 12)]
 
-    m.output("tlb_req_valid", s0_fire.wire)
-    m.output("tlb_req_vpn", s0_vpn.wire)
+    m.output(f"{prefix}_tlb_req_valid", s0_fire.wire)
+    _out["tlb_req_valid"] = s0_fire
+    m.output(f"{prefix}_tlb_req_vpn", s0_vpn.wire)
+    _out["tlb_req_vpn"] = s0_vpn
 
     # ── Pipeline registers s0 → s1 ───────────────────────────────
 
-    s1_valid_w = domain.cycle(s0_fire.wire, name="s1_v")
-    s1_addr_w = domain.cycle(issue_addr.wire, name="s1_addr")
-    s1_data_w = domain.cycle(issue_data.wire, name="s1_data")
-    s1_rob_idx_w = domain.cycle(issue_rob_idx.wire, name="s1_rob")
-    s1_sq_idx_w = domain.cycle(issue_sq_idx.wire, name="s1_sq")
+    s1_valid_w = domain.cycle(s0_fire.wire, name=f"{prefix}_s1_v")
+    s1_addr_w = domain.cycle(issue_addr.wire, name=f"{prefix}_s1_addr")
+    s1_data_w = domain.cycle(issue_data.wire, name=f"{prefix}_s1_data")
+    s1_rob_idx_w = domain.cycle(issue_rob_idx.wire, name=f"{prefix}_s1_rob")
+    s1_sq_idx_w = domain.cycle(issue_sq_idx.wire, name=f"{prefix}_s1_sq")
 
     domain.next()  # ─────────────── s0 → s1 boundary ──────────────
 
@@ -97,15 +114,23 @@ def build_store_unit(
     # Output ports
     # ================================================================
 
-    m.output("sq_write_valid", s1_sq_fire)
-    m.output("sq_write_idx", s1_sq_idx_w)
-    m.output("sq_write_addr", s1_paddr)
-    m.output("sq_write_data", s1_data_w)
+    m.output(f"{prefix}_sq_write_valid", s1_sq_fire)
+    _out["sq_write_valid"] = cas(domain, s1_sq_fire, cycle=domain.cycle_index)
+    m.output(f"{prefix}_sq_write_idx", s1_sq_idx_w)
+    _out["sq_write_idx"] = cas(domain, s1_sq_idx_w, cycle=domain.cycle_index)
+    m.output(f"{prefix}_sq_write_addr", s1_paddr)
+    _out["sq_write_addr"] = cas(domain, s1_paddr, cycle=domain.cycle_index)
+    m.output(f"{prefix}_sq_write_data", s1_data_w)
+    _out["sq_write_data"] = cas(domain, s1_data_w, cycle=domain.cycle_index)
 
-    m.output("wb_valid", s1_sq_fire)
-    m.output("wb_rob_idx", s1_rob_idx_w)
+    m.output(f"{prefix}_wb_valid", s1_sq_fire)
+    _out["wb_valid"] = cas(domain, s1_sq_fire, cycle=domain.cycle_index)
+    m.output(f"{prefix}_wb_rob_idx", s1_rob_idx_w)
+    _out["wb_rob_idx"] = cas(domain, s1_rob_idx_w, cycle=domain.cycle_index)
 
-    m.output("tlb_miss", s1_tlb_miss)
+    m.output(f"{prefix}_tlb_miss", s1_tlb_miss)
+    _out["tlb_miss"] = cas(domain, s1_tlb_miss, cycle=domain.cycle_index)
+    return _out
 
 
 build_store_unit.__pycircuit_name__ = "store_unit"

@@ -54,13 +54,18 @@ def build_ibuffer(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "ibuf",
     size: int = IBUFFER_SIZE,
     enq_width: int = ENQ_WIDTH,
     deq_width: int = DEQ_WIDTH,
     inst_width: int = INST_WIDTH,
     pc_width: int = PC_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """IBuffer: circular instruction FIFO between IFU and Decode."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
     ptr_w = max(1, (size - 1).bit_length() + 1)
     idx_w = max(1, (size - 1).bit_length())
     cnt_w = max(1, size.bit_length())
@@ -71,28 +76,32 @@ def build_ibuffer(
     rst = m.reset_active(cd.rst)
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────────
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
     # Enqueue interface (from IFU)
-    in_valid = cas(domain, m.input("in_valid", width=1), cycle=0)
-    in_num = cas(domain, m.input("in_num", width=enq_cnt_w), cycle=0)
-    in_insts = [cas(domain, m.input(f"in_inst_{i}", width=inst_width), cycle=0) for i in range(enq_width)]
-    in_pcs = [cas(domain, m.input(f"in_pc_{i}", width=pc_width), cycle=0) for i in range(enq_width)]
-    in_is_rvc = [cas(domain, m.input(f"in_is_rvc_{i}", width=1), cycle=0) for i in range(enq_width)]
+    in_valid = (_in["in_valid"] if "in_valid" in _in else
+        cas(domain, m.input(f"{prefix}_in_valid", width=1), cycle=0))
+    in_num = (_in["in_num"] if "in_num" in _in else
+        cas(domain, m.input(f"{prefix}_in_num", width=enq_cnt_w), cycle=0))
+    in_insts = [cas(domain, m.input(f"{prefix}_in_inst_{i}", width=inst_width), cycle=0) for i in range(enq_width)]
+    in_pcs = [cas(domain, m.input(f"{prefix}_in_pc_{i}", width=pc_width), cycle=0) for i in range(enq_width)]
+    in_is_rvc = [cas(domain, m.input(f"{prefix}_in_is_rvc_{i}", width=1), cycle=0) for i in range(enq_width)]
 
     # Dequeue interface (to Decode) — decode_accept tells us how many decode consumed
-    decode_accept = cas(domain, m.input("decode_accept", width=1), cycle=0)
+    decode_accept = (_in["decode_accept"] if "decode_accept" in _in else
+        cas(domain, m.input(f"{prefix}_decode_accept", width=1), cycle=0))
 
     # ── State registers ──────────────────────────────────────────────
     # Circular queue pointers (with wrap bit for full/empty disambiguation)
-    enq_ptr = domain.state(width=ptr_w, reset_value=0, name="enq_ptr")
-    deq_ptr = domain.state(width=ptr_w, reset_value=0, name="deq_ptr")
+    enq_ptr = domain.state(width=ptr_w, reset_value=0, name=f"{prefix}_enq_ptr")
+    deq_ptr = domain.state(width=ptr_w, reset_value=0, name=f"{prefix}_deq_ptr")
 
     # Storage: per-entry inst and pc
-    entry_inst = [domain.state(width=inst_width, reset_value=0, name=f"ent_inst_{i}") for i in range(size)]
-    entry_pc = [domain.state(width=pc_width, reset_value=0, name=f"ent_pc_{i}") for i in range(size)]
-    entry_rvc = [domain.state(width=1, reset_value=0, name=f"ent_rvc_{i}") for i in range(size)]
-    entry_valid = [domain.state(width=1, reset_value=0, name=f"ent_v_{i}") for i in range(size)]
+    entry_inst = [domain.state(width=inst_width, reset_value=0, name=f"{prefix}_ent_inst_{i}") for i in range(size)]
+    entry_pc = [domain.state(width=pc_width, reset_value=0, name=f"{prefix}_ent_pc_{i}") for i in range(size)]
+    entry_rvc = [domain.state(width=1, reset_value=0, name=f"{prefix}_ent_rvc_{i}") for i in range(size)]
+    entry_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_ent_v_{i}") for i in range(size)]
 
     # ── Cycle 0: Combinational logic ─────────────────────────────────
 
@@ -113,7 +122,8 @@ def build_ibuffer(
     in_ready_comb = cas(domain, m.const(1, width=1), cycle=0)  # simplified: ready when not full
     is_full = num_valid == size_const
     in_ready_comb = mux(is_full, cas(domain, m.const(0, width=1), cycle=0), in_ready_comb)
-    m.output("in_ready", in_ready_comb.wire)
+    m.output(f"{prefix}_in_ready", in_ready_comb.wire)
+    _out["in_ready"] = in_ready_comb
 
     # Enqueue fire
     enq_fire = in_valid & in_ready_comb & (~flush)
@@ -148,10 +158,10 @@ def build_ibuffer(
 
         out_valid = has_entry & (~flush)
 
-        m.output(f"out_valid_{i}", out_valid.wire)
-        m.output(f"out_inst_{i}", out_inst.wire)
-        m.output(f"out_pc_{i}", out_pc.wire)
-        m.output(f"out_is_rvc_{i}", out_rvc.wire)
+        m.output(f"{prefix}_out_valid_{i}", out_valid.wire)
+        m.output(f"{prefix}_out_inst_{i}", out_inst.wire)
+        m.output(f"{prefix}_out_pc_{i}", out_pc.wire)
+        m.output(f"{prefix}_out_is_rvc_{i}", out_rvc.wire)
 
     # Count actual dequeues: number of consecutive valid outputs accepted
     num_deq = cas(domain, m.const(0, width=deq_cnt_w), cycle=0)
@@ -165,7 +175,8 @@ def build_ibuffer(
                       cas(domain, m.const(i + 1, width=deq_cnt_w), cycle=0),
                       num_deq)
 
-    m.output("num_valid", num_valid.wire)
+    m.output(f"{prefix}_num_valid", num_valid.wire)
+    _out["num_valid"] = num_valid
 
     # ── domain.next() → Cycle 1: State updates ──────────────────────
     domain.next()
@@ -206,6 +217,7 @@ def build_ibuffer(
 
     for j in range(size):
         entry_valid[j].set(cas(domain, m.const(0, width=1), cycle=0), when=flush)
+    return _out
 
 
 build_ibuffer.__pycircuit_name__ = "ibuffer"

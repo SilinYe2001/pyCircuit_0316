@@ -50,30 +50,43 @@ def build_plic(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "plic",
     num_sources: int = PLIC_NUM_SOURCES,
     num_targets: int = PLIC_NUM_TARGETS,
     prio_width: int = PLIC_PRIO_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """PLIC stub: priority-based interrupt routing from sources to targets."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     src_id_w = max(1, (num_sources - 1).bit_length())
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
-    irq_pending = cas(domain, m.input("irq_pending", width=num_sources), cycle=0)
-    irq_enable  = cas(domain, m.input("irq_enable", width=num_sources), cycle=0)
+    irq_pending = (_in["irq_pending"] if "irq_pending" in _in else
+        cas(domain, m.input(f"{prefix}_irq_pending", width=num_sources), cycle=0))
+    irq_enable = (_in["irq_enable"] if "irq_enable" in _in else
+        cas(domain, m.input(f"{prefix}_irq_enable", width=num_sources), cycle=0))
 
-    claim_valid = cas(domain, m.input("claim_valid", width=1), cycle=0)
-    complete_valid = cas(domain, m.input("complete_valid", width=1), cycle=0)
-    complete_id = cas(domain, m.input("complete_id", width=src_id_w), cycle=0)
+    claim_valid = (_in["claim_valid"] if "claim_valid" in _in else
 
-    threshold = cas(domain, m.input("threshold", width=prio_width), cycle=0)
+        cas(domain, m.input(f"{prefix}_claim_valid", width=1), cycle=0))
+    complete_valid = (_in["complete_valid"] if "complete_valid" in _in else
+        cas(domain, m.input(f"{prefix}_complete_valid", width=1), cycle=0))
+    complete_id = (_in["complete_id"] if "complete_id" in _in else
+        cas(domain, m.input(f"{prefix}_complete_id", width=src_id_w), cycle=0))
+
+    threshold = (_in["threshold"] if "threshold" in _in else
+
+        cas(domain, m.input(f"{prefix}_threshold", width=prio_width), cycle=0))
 
     # ── State ────────────────────────────────────────────────────
-    claimed = domain.state(width=num_sources, reset_value=0, name="claimed")
+    claimed = domain.state(width=num_sources, reset_value=0, name=f"{prefix}_claimed")
 
     # Per-source priority (simplified: stored as state, writable)
     src_prio = [
-        domain.state(width=prio_width, reset_value=0, name=f"prio_{i}")
+        domain.state(width=prio_width, reset_value=0, name=f"{prefix}_prio_{i}")
         for i in range(min(num_sources, 8))
     ]
 
@@ -98,8 +111,10 @@ def build_plic(
         any_irq = any_irq | take
 
     # ── Outputs ──────────────────────────────────────────────────
-    m.output("irq_out", any_irq.wire)
-    m.output("irq_id", best_id.wire)
+    m.output(f"{prefix}_irq_out", any_irq.wire)
+    _out["irq_out"] = any_irq
+    m.output(f"{prefix}_irq_id", best_id.wire)
+    _out["irq_id"] = best_id
 
     # ── Cycle 1: State updates ───────────────────────────────────
     domain.next()
@@ -120,6 +135,7 @@ def build_plic(
 
     new_claimed = (claimed | claim_mask) & (~complete_mask)
     claimed.set(new_claimed)
+    return _out
 
 
 build_plic.__pycircuit_name__ = "plic"
@@ -133,25 +149,34 @@ def build_clint(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "clint",
     timer_width: int = CLINT_TIMER_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """CLINT stub: timer interrupt (mtip) and software interrupt (msip)."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
 
     # Software interrupt write
-    msip_write_valid = cas(domain, m.input("msip_write_valid", width=1), cycle=0)
-    msip_write_data  = cas(domain, m.input("msip_write_data", width=1), cycle=0)
+    msip_write_valid = (_in["msip_write_valid"] if "msip_write_valid" in _in else
+        cas(domain, m.input(f"{prefix}_msip_write_valid", width=1), cycle=0))
+    msip_write_data = (_in["msip_write_data"] if "msip_write_data" in _in else
+        cas(domain, m.input(f"{prefix}_msip_write_data", width=1), cycle=0))
 
     # Timer compare register write
-    mtimecmp_write_valid = cas(domain, m.input("mtimecmp_write_valid", width=1), cycle=0)
-    mtimecmp_write_data  = cas(domain, m.input("mtimecmp_write_data", width=timer_width), cycle=0)
+    mtimecmp_write_valid = (_in["mtimecmp_write_valid"] if "mtimecmp_write_valid" in _in else
+        cas(domain, m.input(f"{prefix}_mtimecmp_write_valid", width=1), cycle=0))
+    mtimecmp_write_data = (_in["mtimecmp_write_data"] if "mtimecmp_write_data" in _in else
+        cas(domain, m.input(f"{prefix}_mtimecmp_write_data", width=timer_width), cycle=0))
 
     # ── State ────────────────────────────────────────────────────
 
-    mtime    = domain.state(width=timer_width, reset_value=0, name="mtime")
-    mtimecmp = domain.state(width=timer_width, reset_value=0, name="mtimecmp")
-    msip_reg = domain.state(width=1, reset_value=0, name="msip")
+    mtime    = domain.state(width=timer_width, reset_value=0, name=f"{prefix}_mtime")
+    mtimecmp = domain.state(width=timer_width, reset_value=0, name=f"{prefix}_mtimecmp")
+    msip_reg = domain.state(width=1, reset_value=0, name=f"{prefix}_msip")
 
     # ── Cycle 0: Combinational ───────────────────────────────────
 
@@ -164,9 +189,12 @@ def build_clint(
     mtip = ~time_lt_cmp
 
     # ── Outputs ──────────────────────────────────────────────────
-    m.output("mtip", mtip.wire)
-    m.output("msip", msip_reg.wire)
-    m.output("mtime_out", mtime.wire)
+    m.output(f"{prefix}_mtip", mtip.wire)
+    _out["mtip"] = mtip
+    m.output(f"{prefix}_msip", msip_reg.wire)
+    _out["msip"] = msip_reg
+    m.output(f"{prefix}_mtime_out", mtime.wire)
+    _out["mtime_out"] = mtime
 
     # ── Cycle 1: State updates ───────────────────────────────────
     domain.next()
@@ -182,6 +210,7 @@ def build_clint(
 
     # msip updated on write
     msip_reg.set(mux(msip_write_valid, msip_write_data, msip_reg))
+    return _out
 
 
 build_clint.__pycircuit_name__ = "clint"

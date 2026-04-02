@@ -59,23 +59,34 @@ def build_fpu(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "fpu",
     data_width: int = XLEN,
     pipe_latency: int = PIPE_LATENCY,
     fdiv_latency: int = FDIV_LATENCY,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """FPU: floating-point unit with pipelined add/sub/mul and FSM-based div."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     op_w = FPU_OP_WIDTH
     cnt_w = max(1, fdiv_latency.bit_length())
     double_w = data_width * 2
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────
-    in_valid = cas(domain, m.input("in_valid", width=1), cycle=0)
-    src1 = cas(domain, m.input("src1", width=data_width), cycle=0)
-    src2 = cas(domain, m.input("src2", width=data_width), cycle=0)
-    fpu_op = cas(domain, m.input("fpu_op", width=op_w), cycle=0)
-    out_ready = cas(domain, m.input("out_ready", width=1), cycle=0)
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    in_valid = (_in["in_valid"] if "in_valid" in _in else
+        cas(domain, m.input(f"{prefix}_in_valid", width=1), cycle=0))
+    src1 = (_in["src1"] if "src1" in _in else
+        cas(domain, m.input(f"{prefix}_src1", width=data_width), cycle=0))
+    src2 = (_in["src2"] if "src2" in _in else
+        cas(domain, m.input(f"{prefix}_src2", width=data_width), cycle=0))
+    fpu_op = (_in["fpu_op"] if "fpu_op" in _in else
+        cas(domain, m.input(f"{prefix}_fpu_op", width=op_w), cycle=0))
+    out_ready = (_in["out_ready"] if "out_ready" in _in else
+        cas(domain, m.input(f"{prefix}_out_ready", width=1), cycle=0))
+    flush = (_in["flush"] if "flush" in _in else
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
     def _const(val, w=data_width):
         return cas(domain, m.const(val, width=w), cycle=0)
@@ -108,17 +119,17 @@ def build_fpu(
     pipe_v = pipe_fire
     pipe_r = pipe_result
     for stage in range(pipe_latency):
-        pipe_v_w = domain.cycle(pipe_v.wire, name=f"fpipe_v_{stage}")
-        pipe_r_w = domain.cycle(pipe_r.wire, name=f"fpipe_r_{stage}")
+        pipe_v_w = domain.cycle(pipe_v.wire, name=f"{prefix}_fpipe_v_{stage}")
+        pipe_r_w = domain.cycle(pipe_r.wire, name=f"{prefix}_fpipe_r_{stage}")
         pipe_v = cas(domain, pipe_v_w, cycle=0)
         pipe_r = cas(domain, pipe_r_w, cycle=0)
 
     # ── FDIV FSM path ────────────────────────────────────────────
-    div_state = domain.state(width=STATE_WIDTH, reset_value=ST_IDLE, name="fdiv_fsm")
-    div_counter = domain.state(width=cnt_w, reset_value=0, name="fdiv_cnt")
-    div_src1 = domain.state(width=data_width, reset_value=0, name="fdiv_s1")
-    div_src2 = domain.state(width=data_width, reset_value=0, name="fdiv_s2")
-    div_result_r = domain.state(width=data_width, reset_value=0, name="fdiv_res")
+    div_state = domain.state(width=STATE_WIDTH, reset_value=ST_IDLE, name=f"{prefix}_fdiv_fsm")
+    div_counter = domain.state(width=cnt_w, reset_value=0, name=f"{prefix}_fdiv_cnt")
+    div_src1 = domain.state(width=data_width, reset_value=0, name=f"{prefix}_fdiv_s1")
+    div_src2 = domain.state(width=data_width, reset_value=0, name=f"{prefix}_fdiv_s2")
+    div_result_r = domain.state(width=data_width, reset_value=0, name=f"{prefix}_fdiv_res")
 
     cur_state = cas(domain, div_state.wire, cycle=0)
     cur_cnt = cas(domain, div_counter.wire, cycle=0)
@@ -147,9 +158,12 @@ def build_fpu(
     result = mux(div_out_valid, cur_dres, pipe_r)
     in_ready = (is_pipe | (is_fdiv & is_idle)) & (~flush)
 
-    m.output("out_valid", out_valid.wire)
-    m.output("in_ready", in_ready.wire)
-    m.output("result", result.wire)
+    m.output(f"{prefix}_out_valid", out_valid.wire)
+    _out["out_valid"] = out_valid
+    m.output(f"{prefix}_in_ready", in_ready.wire)
+    _out["in_ready"] = in_ready
+    m.output(f"{prefix}_result", result.wire)
+    _out["result"] = result
 
     # ── Cycle 1: State updates ───────────────────────────────────
     domain.next()
@@ -178,6 +192,7 @@ def build_fpu(
     # Flush: return to IDLE
     div_state.set(cas(domain, m.const(ST_IDLE, width=STATE_WIDTH), cycle=0), when=flush)
     div_counter.set(cas(domain, m.const(0, width=cnt_w), cycle=0), when=flush)
+    return _out
 
 
 build_fpu.__pycircuit_name__ = "fpu"

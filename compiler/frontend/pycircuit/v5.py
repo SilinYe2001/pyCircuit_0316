@@ -343,7 +343,9 @@ class CycleAwareSignal:
         nw = self._domain._m.named(self._w, str(name))
         return CycleAwareSignal(self._domain, nw, self._cycle)
 
-    def _align(self, other: "CycleAwareSignal | Wire | Reg | int | LiteralValue") -> tuple[Wire, Wire, int]:
+    def _align(self, other: "CycleAwareSignal | StateSignal | Wire | Reg | int | LiteralValue") -> tuple[Wire, Wire, int]:
+        if isinstance(other, StateSignal):
+            return self._align(other._cas)
         if isinstance(other, CycleAwareSignal):
             if other._domain is not self._domain:
                 raise ValueError("CycleAwareSignal operands must share the same domain")
@@ -647,6 +649,7 @@ def compile_cycle_aware(
     eager: bool = False,
     structural: bool | None = None,
     value_params: Mapping[str, str] | dict[str, str] | None = None,
+    design_ctx: Any | None = None,
     **jit_params: Any,
 ) -> Any:
     """Compile or execute ``fn(m, domain, **kwargs)``.
@@ -655,10 +658,14 @@ def compile_cycle_aware(
     wrapper instantiates :class:`CycleAwareDomain` from ``domain_name`` and calls ``fn``.
     Pass ``eager=True`` to run ``fn`` directly in Python and get a
     :class:`CycleAwareCircuit` (no JIT; no ``if Wire`` / JIT control flow).
+
+    If *design_ctx* is provided in eager mode, it is forwarded to the
+    :class:`CycleAwareCircuit` constructor, enabling ``m.instance()`` for
+    hierarchical module composition.
     """
     if eager:
         circuit_name = name if isinstance(name, str) and name.strip() else getattr(fn, "__name__", "design") or "design"
-        m = CycleAwareCircuit(str(circuit_name))
+        m = CycleAwareCircuit(str(circuit_name), design_ctx=design_ctx)
         dom = m.create_domain(str(domain_name))
         out = fn(m, dom, **jit_params)
         if out is not None:

@@ -45,36 +45,45 @@ def build_prefetcher(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "pf",
     table_size: int = PREFETCH_TABLE_SIZE,
     conf_width: int = PREFETCH_CONF_WIDTH,
     conf_threshold: int = PREFETCH_CONF_THRESHOLD,
     stride_width: int = STRIDE_WIDTH,
     pc_tag_width: int = PREFETCH_PC_TAG_WIDTH,
     addr_width: int = 36,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Prefetcher: simple stride-based prefetch predictor."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     idx_w = max(1, math.ceil(math.log2(table_size)))
     conf_max = (1 << conf_width) - 1
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────────
 
-    train_valid = cas(domain, m.input("train_valid", width=1), cycle=0)
-    train_pc = cas(domain, m.input("train_pc", width=PC_WIDTH), cycle=0)
-    train_addr = cas(domain, m.input("train_addr", width=addr_width), cycle=0)
+    train_valid = (_in["train_valid"] if "train_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_train_valid", width=1), cycle=0))
+    train_pc = (_in["train_pc"] if "train_pc" in _in else
+        cas(domain, m.input(f"{prefix}_train_pc", width=PC_WIDTH), cycle=0))
+    train_addr = (_in["train_addr"] if "train_addr" in _in else
+        cas(domain, m.input(f"{prefix}_train_addr", width=addr_width), cycle=0))
 
     zero1 = cas(domain, m.const(0, width=1), cycle=0)
     one1 = cas(domain, m.const(1, width=1), cycle=0)
 
     # ── Table storage ─────────────────────────────────────────────────
 
-    e_valid = [domain.state(width=1, reset_value=0, name=f"pf_v_{i}") for i in range(table_size)]
-    e_pc_tag = [domain.state(width=pc_tag_width, reset_value=0, name=f"pf_pc_{i}") for i in range(table_size)]
-    e_last_addr = [domain.state(width=addr_width, reset_value=0, name=f"pf_la_{i}") for i in range(table_size)]
-    e_stride = [domain.state(width=stride_width, reset_value=0, name=f"pf_st_{i}") for i in range(table_size)]
-    e_conf = [domain.state(width=conf_width, reset_value=0, name=f"pf_cf_{i}") for i in range(table_size)]
+    e_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_pf_v_{i}") for i in range(table_size)]
+    e_pc_tag = [domain.state(width=pc_tag_width, reset_value=0, name=f"{prefix}_pf_pc_{i}") for i in range(table_size)]
+    e_last_addr = [domain.state(width=addr_width, reset_value=0, name=f"{prefix}_pf_la_{i}") for i in range(table_size)]
+    e_stride = [domain.state(width=stride_width, reset_value=0, name=f"{prefix}_pf_st_{i}") for i in range(table_size)]
+    e_conf = [domain.state(width=conf_width, reset_value=0, name=f"{prefix}_pf_cf_{i}") for i in range(table_size)]
 
-    repl_ptr_r = domain.state(width=idx_w, reset_value=0, name="pf_rptr")
+    repl_ptr_r = domain.state(width=idx_w, reset_value=0, name=f"{prefix}_pf_rptr")
     repl_ptr = cas(domain, repl_ptr_r.wire, cycle=0)
 
     # ── Lookup: find matching PC tag ────────────────────────────────
@@ -107,8 +116,10 @@ def build_prefetcher(
     pf_addr = cas(domain, (train_addr.wire + tbl_stride.wire)[0:addr_width], cycle=0)
     pf_valid = train_valid & tbl_hit & conf_above
 
-    m.output("pf_valid", pf_valid.wire)
-    m.output("pf_addr", pf_addr.wire)
+    m.output(f"{prefix}_pf_valid", pf_valid.wire)
+    _out["pf_valid"] = pf_valid
+    m.output(f"{prefix}_pf_addr", pf_addr.wire)
+    _out["pf_addr"] = pf_addr
 
     # ── domain.next() → Cycle 1: table update ───────────────────────
     domain.next()
@@ -149,6 +160,7 @@ def build_prefetcher(
                    cas(domain, m.const(0, width=idx_w), cycle=0),
                    cas(domain, (repl_ptr.wire + u(idx_w, 1))[0:idx_w], cycle=0))
     repl_ptr_r.set(mux(train_valid & (~tbl_hit), next_ptr, repl_ptr))
+    return _out
 
 
 build_prefetcher.__pycircuit_name__ = "prefetcher"

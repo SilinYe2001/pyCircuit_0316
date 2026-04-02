@@ -194,8 +194,8 @@ def xor_reduce(
 # ---------------------------------------------------------------------------
 
 def build_mux1h(m: CycleAwareCircuit, domain: CycleAwareDomain, *, n: int = 4, width: int = 8):
-    sels = [cas(domain, m.input(f"sel{i}", width=1), cycle=0) for i in range(n)]
-    vals = [cas(domain, m.input(f"val{i}", width=width), cycle=0) for i in range(n)]
+    sels = [cas(domain, m.input(f"{prefix}_sel{i}", width=1), cycle=0) for i in range(n)]
+    vals = [cas(domain, m.input(f"{prefix}_val{i}", width=width), cycle=0) for i in range(n)]
     result = mux1h(m, domain, sels, vals, width)
     m.output("out", result.wire)
 
@@ -204,7 +204,7 @@ build_mux1h.__pycircuit_name__ = "mux1h"
 
 def build_popcount(m: CycleAwareCircuit, domain: CycleAwareDomain, *, n: int = 8):
     out_w = max(1, (n).bit_length())
-    bits = [cas(domain, m.input(f"bit{i}", width=1), cycle=0) for i in range(n)]
+    bits = [cas(domain, m.input(f"{prefix}_bit{i}", width=1), cycle=0) for i in range(n)]
     result = popcount(m, domain, bits, out_w)
     m.output("count", result.wire)
 
@@ -213,7 +213,7 @@ build_popcount.__pycircuit_name__ = "popcount"
 
 def build_priority_enc(m: CycleAwareCircuit, domain: CycleAwareDomain, *, n: int = 8):
     out_w = max(1, (n - 1).bit_length())
-    bits = [cas(domain, m.input(f"bit{i}", width=1), cycle=0) for i in range(n)]
+    bits = [cas(domain, m.input(f"{prefix}_bit{i}", width=1), cycle=0) for i in range(n)]
     valid, idx = priority_enc_with_valid(m, domain, bits, out_w)
     m.output("valid", valid.wire)
     m.output("idx", idx.wire)
@@ -223,7 +223,7 @@ build_priority_enc.__pycircuit_name__ = "priority_enc"
 
 def build_leading_zeros(m: CycleAwareCircuit, domain: CycleAwareDomain, *, n: int = 8):
     out_w = max(1, n.bit_length())
-    bits = [cas(domain, m.input(f"bit{i}", width=1), cycle=0) for i in range(n)]
+    bits = [cas(domain, m.input(f"{prefix}_bit{i}", width=1), cycle=0) for i in range(n)]
     result = leading_zeros(m, domain, bits, out_w)
     m.output("count", result.wire)
 

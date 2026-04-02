@@ -40,13 +40,18 @@ def build_sbuffer(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "sbuf",
     size: int = STORE_BUFFER_SIZE,
     threshold: int = STORE_BUFFER_THRESHOLD,
     addr_width: int = 36,
     data_width: int = XLEN,
     line_bytes: int = CACHE_LINE_BYTES,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """SBuffer: merge buffer between committed stores and DCache."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     idx_w = max(1, math.ceil(math.log2(size)))
     line_bits = int(math.log2(line_bytes))
@@ -56,28 +61,37 @@ def build_sbuffer(
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────────
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
 
-    enq_valid = cas(domain, m.input("enq_valid", width=1), cycle=0)
-    enq_addr = cas(domain, m.input("enq_addr", width=addr_width), cycle=0)
-    enq_data = cas(domain, m.input("enq_data", width=data_width), cycle=0)
-    enq_mask = cas(domain, m.input("enq_mask", width=mask_w), cycle=0)
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
-    dcache_ready = cas(domain, m.input("dcache_ready", width=1), cycle=0)
+    enq_valid = (_in["enq_valid"] if "enq_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_enq_valid", width=1), cycle=0))
+    enq_addr = (_in["enq_addr"] if "enq_addr" in _in else
+        cas(domain, m.input(f"{prefix}_enq_addr", width=addr_width), cycle=0))
+    enq_data = (_in["enq_data"] if "enq_data" in _in else
+        cas(domain, m.input(f"{prefix}_enq_data", width=data_width), cycle=0))
+    enq_mask = (_in["enq_mask"] if "enq_mask" in _in else
+        cas(domain, m.input(f"{prefix}_enq_mask", width=mask_w), cycle=0))
+
+    dcache_ready = (_in["dcache_ready"] if "dcache_ready" in _in else
+
+        cas(domain, m.input(f"{prefix}_dcache_ready", width=1), cycle=0))
 
     zero1 = cas(domain, m.const(0, width=1), cycle=0)
     one1 = cas(domain, m.const(1, width=1), cycle=0)
 
     # ── Entry storage ─────────────────────────────────────────────────
 
-    e_valid = [domain.state(width=1, reset_value=0, name=f"sb_v_{i}") for i in range(size)]
-    e_tag = [domain.state(width=tag_w, reset_value=0, name=f"sb_t_{i}") for i in range(size)]
-    e_data = [domain.state(width=data_width, reset_value=0, name=f"sb_d_{i}") for i in range(size)]
-    e_mask = [domain.state(width=mask_w, reset_value=0, name=f"sb_m_{i}") for i in range(size)]
+    e_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_sb_v_{i}") for i in range(size)]
+    e_tag = [domain.state(width=tag_w, reset_value=0, name=f"{prefix}_sb_t_{i}") for i in range(size)]
+    e_data = [domain.state(width=data_width, reset_value=0, name=f"{prefix}_sb_d_{i}") for i in range(size)]
+    e_mask = [domain.state(width=mask_w, reset_value=0, name=f"{prefix}_sb_m_{i}") for i in range(size)]
 
     # ── Occupancy counter ─────────────────────────────────────────────
 
-    occ_r = domain.state(width=cnt_w, reset_value=0, name="sb_occ")
+    occ_r = domain.state(width=cnt_w, reset_value=0, name=f"{prefix}_sb_occ")
     occ = cas(domain, occ_r.wire, cycle=0)
     above_thresh = occ == cas(domain, m.const(threshold, width=cnt_w), cycle=0)
 
@@ -130,11 +144,16 @@ def build_sbuffer(
                      m.cat(drain_tag.wire, m.const(0, width=line_bits)),
                      cycle=0)
 
-    m.output("dcache_wr_valid", do_drain.wire)
-    m.output("dcache_wr_addr", drain_addr.wire)
-    m.output("dcache_wr_data", drain_data.wire)
-    m.output("dcache_wr_mask", drain_mask.wire)
-    m.output("ready", can_alloc.wire)
+    m.output(f"{prefix}_dcache_wr_valid", do_drain.wire)
+    _out["dcache_wr_valid"] = do_drain
+    m.output(f"{prefix}_dcache_wr_addr", drain_addr.wire)
+    _out["dcache_wr_addr"] = drain_addr
+    m.output(f"{prefix}_dcache_wr_data", drain_data.wire)
+    _out["dcache_wr_data"] = drain_data
+    m.output(f"{prefix}_dcache_wr_mask", drain_mask.wire)
+    _out["dcache_wr_mask"] = drain_mask
+    m.output(f"{prefix}_ready", can_alloc.wire)
+    _out["ready"] = can_alloc
 
     # ── domain.next() → Cycle 1: state updates ──────────────────────
     domain.next()
@@ -178,6 +197,7 @@ def build_sbuffer(
                   occ))
     net = mux(flush, cas(domain, m.const(0, width=cnt_w), cycle=0), net)
     occ_r.set(net)
+    return _out
 
 
 build_sbuffer.__pycircuit_name__ = "sbuffer"

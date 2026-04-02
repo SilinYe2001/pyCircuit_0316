@@ -54,14 +54,19 @@ def build_coupled_l2(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "l2",
     sets: int = L2_SETS,
     ways: int = L2_WAYS,
     addr_width: int = PADDR_BITS_MAX,
     data_width: int = CACHE_LINE_SIZE,
     mshr_count: int = L2_MSHR_COUNT,
     req_buf_entries: int = L2_REQ_BUF_ENTRIES,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """CoupledL2: simplified non-inclusive L2 cache with TileLink interfaces."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     set_bits = max(1, (sets - 1).bit_length())
     way_bits = max(1, (ways - 1).bit_length())
@@ -73,64 +78,71 @@ def build_coupled_l2(
     op_w = 3
 
     # ── Cycle 0: Upstream TileLink A-channel (from core) ─────────
-    up_a_valid   = cas(domain, m.input("up_a_valid", width=1), cycle=0)
-    up_a_opcode  = cas(domain, m.input("up_a_opcode", width=op_w), cycle=0)
-    up_a_address = cas(domain, m.input("up_a_address", width=addr_width), cycle=0)
-    up_a_data    = cas(domain, m.input("up_a_data", width=data_width), cycle=0)
+    up_a_valid = (_in["up_a_valid"] if "up_a_valid" in _in else
+        cas(domain, m.input(f"{prefix}_up_a_valid", width=1), cycle=0))
+    up_a_opcode = (_in["up_a_opcode"] if "up_a_opcode" in _in else
+        cas(domain, m.input(f"{prefix}_up_a_opcode", width=op_w), cycle=0))
+    up_a_address = (_in["up_a_address"] if "up_a_address" in _in else
+        cas(domain, m.input(f"{prefix}_up_a_address", width=addr_width), cycle=0))
+    up_a_data = (_in["up_a_data"] if "up_a_data" in _in else
+        cas(domain, m.input(f"{prefix}_up_a_data", width=data_width), cycle=0))
 
     # Downstream TileLink D-channel (refill from L3/memory)
-    down_d_valid = cas(domain, m.input("down_d_valid", width=1), cycle=0)
-    down_d_data  = cas(domain, m.input("down_d_data", width=data_width), cycle=0)
+    down_d_valid = (_in["down_d_valid"] if "down_d_valid" in _in else
+        cas(domain, m.input(f"{prefix}_down_d_valid", width=1), cycle=0))
+    down_d_data = (_in["down_d_data"] if "down_d_data" in _in else
+        cas(domain, m.input(f"{prefix}_down_d_data", width=data_width), cycle=0))
 
     # Downstream ready (L3 can accept our request)
-    down_a_ready = cas(domain, m.input("down_a_ready", width=1), cycle=0)
+    down_a_ready = (_in["down_a_ready"] if "down_a_ready" in _in else
+        cas(domain, m.input(f"{prefix}_down_a_ready", width=1), cycle=0))
 
     # ── State: Request buffer (circular) ─────────────────────────
-    buf_wr_ptr = domain.state(width=buf_cnt_w, reset_value=0, name="buf_wr_ptr")
-    buf_rd_ptr = domain.state(width=buf_cnt_w, reset_value=0, name="buf_rd_ptr")
+    buf_wr_ptr = domain.state(width=buf_cnt_w, reset_value=0, name=f"{prefix}_buf_wr_ptr")
+    buf_rd_ptr = domain.state(width=buf_cnt_w, reset_value=0, name=f"{prefix}_buf_rd_ptr")
 
     buf_addr = [
-        domain.state(width=addr_width, reset_value=0, name=f"buf_addr_{i}")
+        domain.state(width=addr_width, reset_value=0, name=f"{prefix}_buf_addr_{i}")
         for i in range(req_buf_entries)
     ]
     buf_op = [
-        domain.state(width=op_w, reset_value=0, name=f"buf_op_{i}")
+        domain.state(width=op_w, reset_value=0, name=f"{prefix}_buf_op_{i}")
         for i in range(req_buf_entries)
     ]
     buf_data_st = [
-        domain.state(width=data_width, reset_value=0, name=f"buf_data_{i}")
+        domain.state(width=data_width, reset_value=0, name=f"{prefix}_buf_data_{i}")
         for i in range(req_buf_entries)
     ]
     buf_valid = [
-        domain.state(width=1, reset_value=0, name=f"buf_v_{i}")
+        domain.state(width=1, reset_value=0, name=f"{prefix}_buf_v_{i}")
         for i in range(req_buf_entries)
     ]
 
     # ── State: Tag array (ways × sets) — simplified flat ────────
     # Only model a single-set slice for synthesis; full array is memory macro.
     tag_valid = [
-        domain.state(width=1, reset_value=0, name=f"tag_v_{w}")
+        domain.state(width=1, reset_value=0, name=f"{prefix}_tag_v_{w}")
         for w in range(ways)
     ]
     tag_store = [
-        domain.state(width=tag_bits, reset_value=0, name=f"tag_{w}")
+        domain.state(width=tag_bits, reset_value=0, name=f"{prefix}_tag_{w}")
         for w in range(ways)
     ]
 
     # ── State: MSHR (one active miss tracker, simplified) ────────
-    mshr_valid    = domain.state(width=1, reset_value=0, name="mshr_valid")
-    mshr_addr     = domain.state(width=addr_width, reset_value=0, name="mshr_addr")
-    mshr_way_sel  = domain.state(width=way_bits, reset_value=0, name="mshr_way")
+    mshr_valid    = domain.state(width=1, reset_value=0, name=f"{prefix}_mshr_valid")
+    mshr_addr     = domain.state(width=addr_width, reset_value=0, name=f"{prefix}_mshr_addr")
+    mshr_way_sel  = domain.state(width=way_bits, reset_value=0, name=f"{prefix}_mshr_way")
 
     # ── State: Directory (per-way client presence bit) ───────────
     dir_present = [
-        domain.state(width=1, reset_value=0, name=f"dir_{w}")
+        domain.state(width=1, reset_value=0, name=f"{prefix}_dir_{w}")
         for w in range(ways)
     ]
 
     # ── State: Data array (one line per way, single-set slice) ───
     data_store = [
-        domain.state(width=data_width, reset_value=0, name=f"dram_{w}")
+        domain.state(width=data_width, reset_value=0, name=f"{prefix}_dram_{w}")
         for w in range(ways)
     ]
 
@@ -150,7 +162,8 @@ def build_coupled_l2(
     buf_empty = buf_count == _const(0, buf_cnt_w)
 
     up_a_ready_comb = (~buf_full) & (~ZERO_1)  # ready when not full
-    m.output("up_a_ready", up_a_ready_comb.wire)
+    m.output(f"{prefix}_up_a_ready", up_a_ready_comb.wire)
+    _out["up_a_ready"] = up_a_ready_comb
 
     enq_fire = up_a_valid & up_a_ready_comb
 
@@ -185,28 +198,36 @@ def build_coupled_l2(
 
     # ── Outputs: upstream D-channel (response to core) ───────────
     up_d_valid_comb = can_issue & any_hit & (~buf_empty)
-    m.output("up_d_valid", up_d_valid_comb.wire)
-    m.output("up_d_data", hit_data.wire)
+    m.output(f"{prefix}_up_d_valid", up_d_valid_comb.wire)
+    _out["up_d_valid"] = up_d_valid_comb
+    m.output(f"{prefix}_up_d_data", hit_data.wire)
+    _out["up_d_data"] = hit_data
 
     # ── Outputs: downstream A-channel (miss request to L3) ───────
     need_miss = can_issue & (~any_hit) & (~mshr_valid)
     down_a_valid_comb = need_miss & (~buf_empty)
-    m.output("down_a_valid", down_a_valid_comb.wire)
-    m.output("down_a_address", hd_addr.wire)
-    m.output("down_a_opcode", hd_op.wire)
+    m.output(f"{prefix}_down_a_valid", down_a_valid_comb.wire)
+    _out["down_a_valid"] = down_a_valid_comb
+    m.output(f"{prefix}_down_a_address", hd_addr.wire)
+    _out["down_a_address"] = hd_addr
+    m.output(f"{prefix}_down_a_opcode", hd_op.wire)
+    _out["down_a_opcode"] = hd_op
 
     miss_fire = down_a_valid_comb & down_a_ready
 
     # Downstream D ready (we accept refill when MSHR valid)
-    m.output("down_d_ready", mshr_valid.wire)
+    m.output(f"{prefix}_down_d_ready", mshr_valid.wire)
+    _out["down_d_ready"] = mshr_valid
     refill_fire = down_d_valid & mshr_valid
 
     # Pipeline advance: head consumed on hit or on miss accepted
     pipe_advance = (up_d_valid_comb | miss_fire) & (~buf_empty)
 
     # Status outputs
-    m.output("mshr_busy", mshr_valid.wire)
-    m.output("buf_count", buf_count.wire)
+    m.output(f"{prefix}_mshr_busy", mshr_valid.wire)
+    _out["mshr_busy"] = mshr_valid
+    m.output(f"{prefix}_buf_count", buf_count.wire)
+    _out["buf_count"] = buf_count
 
     # ── domain.next() → Cycle 1: State updates ──────────────────
     domain.next()
@@ -256,6 +277,7 @@ def build_coupled_l2(
         tag_valid[w].set(mux(we, ONE_1, tag_valid[w]), when=we)
         data_store[w].set(mux(we, down_d_data, data_store[w]), when=we)
         dir_present[w].set(mux(we, ONE_1, dir_present[w]), when=we)
+    return _out
 
 
 build_coupled_l2.__pycircuit_name__ = "coupled_l2"

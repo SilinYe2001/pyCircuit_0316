@@ -67,11 +67,21 @@ NUM_WB_PORTS = 4
 NUM_INT_EXU = 2
 NUM_FP_EXU = 1
 
+from backend.ctrlblock.ctrlblock import build_ctrlblock
+from backend.issue.issue_queue import build_issue_queue
+from backend.regfile.regfile import build_regfile
+from backend.exu.alu import build_alu
+from backend.exu.bru import build_bru
+from backend.exu.mul import build_mul
+from backend.exu.div import build_div
+from backend.fu.fpu import build_fpu
+
 
 def build_backend(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "be",
     decode_width: int = DECODE_WIDTH,
     commit_width: int = COMMIT_WIDTH,
     num_wb: int = NUM_WB_PORTS,
@@ -82,51 +92,110 @@ def build_backend(
     pc_width: int = PC_WIDTH,
     rob_idx_w: int = ROB_IDX_WIDTH,
     fu_type_w: int = FU_TYPE_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Backend: top-level integration wiring CtrlBlock + ExeUnits + RegFile."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
+    # ── Sub-module calls ──
+    domain.push()
+    ctrl_out = build_ctrlblock(m, domain, prefix=f"{prefix}_s_ctrl",
+                               decode_width=decode_width, commit_width=commit_width,
+                               ptag_w=ptag_w, pc_width=pc_width, rob_idx_w=rob_idx_w,
+                               inputs={})
+    domain.pop()
+
+    domain.push()
+    iq_out = build_issue_queue(m, domain, prefix=f"{prefix}_s_iq",
+                               ptag_w=ptag_w, rob_idx_w=rob_idx_w,
+                               inputs={})
+    domain.pop()
+
+    domain.push()
+    rf_out = build_regfile(m, domain, prefix=f"{prefix}_s_rf",
+                           data_width=data_width,
+                           inputs={})
+    domain.pop()
+
+    for _i in range(num_int_exu):
+        domain.push()
+        build_alu(m, domain, prefix=f"{prefix}_s_alu{_i}",
+                  data_width=data_width, inputs={})
+        domain.pop()
+
+    domain.push()
+    bru_out = build_bru(m, domain, prefix=f"{prefix}_s_bru",
+                        data_width=data_width, pc_width=pc_width,
+                        inputs={})
+    domain.pop()
+
+    domain.push()
+    mul_out = build_mul(m, domain, prefix=f"{prefix}_s_mul",
+                        data_width=data_width, inputs={})
+    domain.pop()
+
+    domain.push()
+    div_out = build_div(m, domain, prefix=f"{prefix}_s_div",
+                        data_width=data_width, inputs={})
+    domain.pop()
+
+    for _i in range(num_fp_exu):
+        domain.push()
+        build_fpu(m, domain, prefix=f"{prefix}_s_fpu{_i}",
+                  data_width=data_width, inputs={})
+        domain.pop()
+
 
     # ================================================================
     # Cycle 0 — Inputs from Frontend and MemBlock
     # ================================================================
 
     # Decoded uops from Frontend
-    in_valid = [cas(domain, m.input(f"dec_valid_{i}", width=1), cycle=0)
+    in_valid = [cas(domain, m.input(f"{prefix}_dec_valid_{i}", width=1), cycle=0)
                 for i in range(decode_width)]
-    in_pc = [cas(domain, m.input(f"dec_pc_{i}", width=pc_width), cycle=0)
+    in_pc = [cas(domain, m.input(f"{prefix}_dec_pc_{i}", width=pc_width), cycle=0)
              for i in range(decode_width)]
-    in_fu_type = [cas(domain, m.input(f"dec_fu_type_{i}", width=fu_type_w), cycle=0)
+    in_fu_type = [cas(domain, m.input(f"{prefix}_dec_fu_type_{i}", width=fu_type_w), cycle=0)
                   for i in range(decode_width)]
-    in_pdest = [cas(domain, m.input(f"dec_pdest_{i}", width=ptag_w), cycle=0)
+    in_pdest = [cas(domain, m.input(f"{prefix}_dec_pdest_{i}", width=ptag_w), cycle=0)
                 for i in range(decode_width)]
-    in_psrc1 = [cas(domain, m.input(f"dec_psrc1_{i}", width=ptag_w), cycle=0)
+    in_psrc1 = [cas(domain, m.input(f"{prefix}_dec_psrc1_{i}", width=ptag_w), cycle=0)
                 for i in range(decode_width)]
-    in_psrc2 = [cas(domain, m.input(f"dec_psrc2_{i}", width=ptag_w), cycle=0)
+    in_psrc2 = [cas(domain, m.input(f"{prefix}_dec_psrc2_{i}", width=ptag_w), cycle=0)
                 for i in range(decode_width)]
-    in_old_pdest = [cas(domain, m.input(f"dec_old_pdest_{i}", width=ptag_w), cycle=0)
+    in_old_pdest = [cas(domain, m.input(f"{prefix}_dec_old_pdest_{i}", width=ptag_w), cycle=0)
                     for i in range(decode_width)]
 
     # Issue queue backpressure
-    iq_int_ready = cas(domain, m.input("iq_int_ready", width=1), cycle=0)
-    iq_fp_ready = cas(domain, m.input("iq_fp_ready", width=1), cycle=0)
-    iq_mem_ready = cas(domain, m.input("iq_mem_ready", width=1), cycle=0)
+    iq_int_ready = (_in["iq_int_ready"] if "iq_int_ready" in _in else
+        cas(domain, m.input(f"{prefix}_iq_int_ready", width=1), cycle=0))
+    iq_fp_ready = (_in["iq_fp_ready"] if "iq_fp_ready" in _in else
+        cas(domain, m.input(f"{prefix}_iq_fp_ready", width=1), cycle=0))
+    iq_mem_ready = (_in["iq_mem_ready"] if "iq_mem_ready" in _in else
+        cas(domain, m.input(f"{prefix}_iq_mem_ready", width=1), cycle=0))
 
     # Writeback from execution units (int + fp)
-    wb_valid = [cas(domain, m.input(f"wb_valid_{i}", width=1), cycle=0)
+    wb_valid = [cas(domain, m.input(f"{prefix}_wb_valid_{i}", width=1), cycle=0)
                 for i in range(num_wb)]
-    wb_pdest = [cas(domain, m.input(f"wb_pdest_{i}", width=ptag_w), cycle=0)
+    wb_pdest = [cas(domain, m.input(f"{prefix}_wb_pdest_{i}", width=ptag_w), cycle=0)
                 for i in range(num_wb)]
-    wb_data = [cas(domain, m.input(f"wb_data_{i}", width=data_width), cycle=0)
+    wb_data = [cas(domain, m.input(f"{prefix}_wb_data_{i}", width=data_width), cycle=0)
                for i in range(num_wb)]
-    wb_rob_idx = [cas(domain, m.input(f"wb_rob_idx_{i}", width=rob_idx_w), cycle=0)
+    wb_rob_idx = [cas(domain, m.input(f"{prefix}_wb_rob_idx_{i}", width=rob_idx_w), cycle=0)
                   for i in range(num_wb)]
 
     # Branch redirect from BRU
-    bru_redirect_valid = cas(domain, m.input("bru_redirect_valid", width=1), cycle=0)
-    bru_redirect_target = cas(domain, m.input("bru_redirect_target", width=pc_width), cycle=0)
+    bru_redirect_valid = (_in["bru_redirect_valid"] if "bru_redirect_valid" in _in else
+        cas(domain, m.input(f"{prefix}_bru_redirect_valid", width=1), cycle=0))
+    bru_redirect_target = (_in["bru_redirect_target"] if "bru_redirect_target" in _in else
+        cas(domain, m.input(f"{prefix}_bru_redirect_target", width=pc_width), cycle=0))
 
     # ROB exception
-    rob_exception_valid = cas(domain, m.input("rob_exception_valid", width=1), cycle=0)
-    rob_exception_pc = cas(domain, m.input("rob_exception_pc", width=pc_width), cycle=0)
+    rob_exception_valid = (_in["rob_exception_valid"] if "rob_exception_valid" in _in else
+        cas(domain, m.input(f"{prefix}_rob_exception_valid", width=1), cycle=0))
+    rob_exception_pc = (_in["rob_exception_pc"] if "rob_exception_pc" in _in else
+        cas(domain, m.input(f"{prefix}_rob_exception_pc", width=pc_width), cycle=0))
 
     # ── Constants ────────────────────────────────────────────────
     ZERO_1 = cas(domain, m.const(0, width=1), cycle=0)
@@ -140,9 +209,12 @@ def build_backend(
     redirect_target = mux(rob_exception_valid, rob_exception_pc, bru_redirect_target)
     redirect_flush = rob_exception_valid
 
-    m.output("redirect_valid", redirect_valid.wire)
-    m.output("redirect_target", redirect_target.wire)
-    m.output("redirect_flush", redirect_flush.wire)
+    m.output(f"{prefix}_redirect_valid", redirect_valid.wire)
+    _out["redirect_valid"] = redirect_valid
+    m.output(f"{prefix}_redirect_target", redirect_target.wire)
+    _out["redirect_target"] = redirect_target
+    m.output(f"{prefix}_redirect_flush", redirect_flush.wire)
+    _out["redirect_flush"] = redirect_flush
 
     # ================================================================
     # Dispatch classification (FU type → IQ class)
@@ -168,7 +240,8 @@ def build_backend(
     dispatch_stall = any_blocked | redirect_valid
     pipeline_stall = dispatch_stall
 
-    m.output("stall_to_frontend", pipeline_stall.wire)
+    m.output(f"{prefix}_stall_to_frontend", pipeline_stall.wire)
+    _out["stall_to_frontend"] = pipeline_stall
 
     # ================================================================
     # Dispatch outputs: gated by stall/flush
@@ -182,28 +255,28 @@ def build_backend(
 
         slot_valid = in_valid[i] & (~pipeline_stall)
 
-        m.output(f"iq_int_valid_{i}", (slot_valid & is_int).wire)
-        m.output(f"iq_fp_valid_{i}", (slot_valid & is_fp).wire)
-        m.output(f"iq_mem_valid_{i}", (slot_valid & is_mem).wire)
+        m.output(f"{prefix}_iq_int_valid_{i}", (slot_valid & is_int).wire)
+        m.output(f"{prefix}_iq_fp_valid_{i}", (slot_valid & is_fp).wire)
+        m.output(f"{prefix}_iq_mem_valid_{i}", (slot_valid & is_mem).wire)
 
-        m.output(f"dp_pdest_{i}", in_pdest[i].wire)
-        m.output(f"dp_psrc1_{i}", in_psrc1[i].wire)
-        m.output(f"dp_psrc2_{i}", in_psrc2[i].wire)
-        m.output(f"dp_fu_type_{i}", in_fu_type[i].wire)
-        m.output(f"dp_pc_{i}", in_pc[i].wire)
+        m.output(f"{prefix}_dp_pdest_{i}", in_pdest[i].wire)
+        m.output(f"{prefix}_dp_psrc1_{i}", in_psrc1[i].wire)
+        m.output(f"{prefix}_dp_psrc2_{i}", in_psrc2[i].wire)
+        m.output(f"{prefix}_dp_fu_type_{i}", in_fu_type[i].wire)
+        m.output(f"{prefix}_dp_pc_{i}", in_pc[i].wire)
 
     # ================================================================
     # Writeback → ROB (forwarding)
     # ================================================================
     for i in range(num_wb):
-        m.output(f"rob_wb_valid_{i}", wb_valid[i].wire)
-        m.output(f"rob_wb_pdest_{i}", wb_pdest[i].wire)
-        m.output(f"rob_wb_rob_idx_{i}", wb_rob_idx[i].wire)
+        m.output(f"{prefix}_rob_wb_valid_{i}", wb_valid[i].wire)
+        m.output(f"{prefix}_rob_wb_pdest_{i}", wb_pdest[i].wire)
+        m.output(f"{prefix}_rob_wb_rob_idx_{i}", wb_rob_idx[i].wire)
 
     # ================================================================
     # Commit: ROB retire state tracking (simplified counter)
     # ================================================================
-    commit_cnt_r = domain.state(width=dp_cnt_w, reset_value=0, name="be_cm_cnt")
+    commit_cnt_r = domain.state(width=dp_cnt_w, reset_value=0, name=f"{prefix}_be_cm_cnt")
     cur_cm = cas(domain, commit_cnt_r.wire, cycle=0)
 
     # Count incoming writeback as proxy for commit readiness
@@ -214,22 +287,23 @@ def build_backend(
                      cas(domain, (wb_cnt.wire + ONE_DP.wire)[0:dp_cnt_w], cycle=0),
                      wb_cnt)
 
-    m.output("wb_count", wb_cnt.wire)
+    m.output(f"{prefix}_wb_count", wb_cnt.wire)
+    _out["wb_count"] = wb_cnt
 
     # Commit outputs (pass-through placeholder — real commit comes from ROB)
     for i in range(min(commit_width, num_wb)):
-        m.output(f"commit_valid_{i}", wb_valid[i].wire)
-        m.output(f"commit_pdest_{i}", wb_pdest[i].wire)
+        m.output(f"{prefix}_commit_valid_{i}", wb_valid[i].wire)
+        m.output(f"{prefix}_commit_pdest_{i}", wb_pdest[i].wire)
 
     # Memory dispatch: pass memory-class uops out to MemBlock
     for i in range(decode_width):
         is_mem = (in_fu_type[i] == FU_LDU_C) | (in_fu_type[i] == FU_STU_C)
         slot_valid = in_valid[i] & (~pipeline_stall) & is_mem
-        m.output(f"mem_dp_valid_{i}", slot_valid.wire)
-        m.output(f"mem_dp_pdest_{i}", in_pdest[i].wire)
-        m.output(f"mem_dp_psrc1_{i}", in_psrc1[i].wire)
-        m.output(f"mem_dp_psrc2_{i}", in_psrc2[i].wire)
-        m.output(f"mem_dp_fu_type_{i}", in_fu_type[i].wire)
+        m.output(f"{prefix}_mem_dp_valid_{i}", slot_valid.wire)
+        m.output(f"{prefix}_mem_dp_pdest_{i}", in_pdest[i].wire)
+        m.output(f"{prefix}_mem_dp_psrc1_{i}", in_psrc1[i].wire)
+        m.output(f"{prefix}_mem_dp_psrc2_{i}", in_psrc2[i].wire)
+        m.output(f"{prefix}_mem_dp_fu_type_{i}", in_fu_type[i].wire)
 
     # ================================================================
     # Cycle 1: pipeline registers + commit counter update
@@ -238,9 +312,9 @@ def build_backend(
 
     for i in range(decode_width):
         slot_valid = in_valid[i] & (~pipeline_stall)
-        domain.cycle(slot_valid.wire, name=f"be_v_{i}")
-        domain.cycle(in_pdest[i].wire, name=f"be_pd_{i}")
-        domain.cycle(in_fu_type[i].wire, name=f"be_fu_{i}")
+        domain.cycle(slot_valid.wire, name=f"{prefix}_be_v_{i}")
+        domain.cycle(in_pdest[i].wire, name=f"{prefix}_be_pd_{i}")
+        domain.cycle(in_fu_type[i].wire, name=f"{prefix}_be_fu_{i}")
 
     # Commit counter: saturate at max
     MAX_CM = cas(domain, m.const((1 << dp_cnt_w) - 1, width=dp_cnt_w), cycle=0)
@@ -249,6 +323,7 @@ def build_backend(
     commit_cnt_r.set(mux(redirect_flush,
                          cas(domain, m.const(0, width=dp_cnt_w), cycle=0),
                          new_cm))
+    return _out
 
 
 build_backend.__pycircuit_name__ = "backend"

@@ -65,13 +65,18 @@ def build_dispatch(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "dp",
     dispatch_width: int = RENAME_WIDTH,
     fu_type_width: int = FU_TYPE_WIDTH,
     ptag_w: int = PTAG_WIDTH_INT,
     pc_width: int = PC_WIDTH,
     rob_idx_w: int = ROB_IDX_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Dispatch: route renamed uops to int / fp / mem issue queues."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     iq_class_w = IQ_CLASS_WIDTH
     dp_cnt_w = max(1, dispatch_width.bit_length())
@@ -80,30 +85,35 @@ def build_dispatch(
     # Cycle 0 — Receive renamed uops, classify, check availability
     # ================================================================
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
+
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
     # Renamed uop inputs (from rename stage)
-    in_valid = [cas(domain, m.input(f"in_valid_{i}", width=1), cycle=0)
+    in_valid = [cas(domain, m.input(f"{prefix}_in_valid_{i}", width=1), cycle=0)
                 for i in range(dispatch_width)]
-    in_pdest = [cas(domain, m.input(f"in_pdest_{i}", width=ptag_w), cycle=0)
+    in_pdest = [cas(domain, m.input(f"{prefix}_in_pdest_{i}", width=ptag_w), cycle=0)
                 for i in range(dispatch_width)]
-    in_psrc1 = [cas(domain, m.input(f"in_psrc1_{i}", width=ptag_w), cycle=0)
+    in_psrc1 = [cas(domain, m.input(f"{prefix}_in_psrc1_{i}", width=ptag_w), cycle=0)
                 for i in range(dispatch_width)]
-    in_psrc2 = [cas(domain, m.input(f"in_psrc2_{i}", width=ptag_w), cycle=0)
+    in_psrc2 = [cas(domain, m.input(f"{prefix}_in_psrc2_{i}", width=ptag_w), cycle=0)
                 for i in range(dispatch_width)]
-    in_old_pdest = [cas(domain, m.input(f"in_old_pdest_{i}", width=ptag_w), cycle=0)
+    in_old_pdest = [cas(domain, m.input(f"{prefix}_in_old_pdest_{i}", width=ptag_w), cycle=0)
                     for i in range(dispatch_width)]
-    in_fu_type = [cas(domain, m.input(f"in_fu_type_{i}", width=fu_type_width), cycle=0)
+    in_fu_type = [cas(domain, m.input(f"{prefix}_in_fu_type_{i}", width=fu_type_width), cycle=0)
                   for i in range(dispatch_width)]
-    in_rob_idx = [cas(domain, m.input(f"in_rob_idx_{i}", width=rob_idx_w), cycle=0)
+    in_rob_idx = [cas(domain, m.input(f"{prefix}_in_rob_idx_{i}", width=rob_idx_w), cycle=0)
                   for i in range(dispatch_width)]
-    in_pc = [cas(domain, m.input(f"in_pc_{i}", width=pc_width), cycle=0)
+    in_pc = [cas(domain, m.input(f"{prefix}_in_pc_{i}", width=pc_width), cycle=0)
              for i in range(dispatch_width)]
 
     # Issue queue ready signals (backpressure)
-    iq_int_ready = cas(domain, m.input("iq_int_ready", width=1), cycle=0)
-    iq_fp_ready = cas(domain, m.input("iq_fp_ready", width=1), cycle=0)
-    iq_mem_ready = cas(domain, m.input("iq_mem_ready", width=1), cycle=0)
+    iq_int_ready = (_in["iq_int_ready"] if "iq_int_ready" in _in else
+        cas(domain, m.input(f"{prefix}_iq_int_ready", width=1), cycle=0))
+    iq_fp_ready = (_in["iq_fp_ready"] if "iq_fp_ready" in _in else
+        cas(domain, m.input(f"{prefix}_iq_fp_ready", width=1), cycle=0))
+    iq_mem_ready = (_in["iq_mem_ready"] if "iq_mem_ready" in _in else
+        cas(domain, m.input(f"{prefix}_iq_mem_ready", width=1), cycle=0))
 
     # ── Constants ────────────────────────────────────────────────
     ZERO_1 = cas(domain, m.const(0, width=1), cycle=0)
@@ -145,7 +155,8 @@ def build_dispatch(
 
     dispatch_fire = (~any_blocked) & (~flush)
 
-    m.output("stall", any_blocked.wire)
+    m.output(f"{prefix}_stall", any_blocked.wire)
+    _out["stall"] = any_blocked
 
     # ── Per-slot dispatch outputs ────────────────────────────────
     for i in range(dispatch_width):
@@ -155,24 +166,24 @@ def build_dispatch(
         fp_fire = slot_fire & is_fp[i]
         mem_fire = slot_fire & is_mem[i]
 
-        m.output(f"iq_int_valid_{i}", int_fire.wire)
-        m.output(f"iq_fp_valid_{i}", fp_fire.wire)
-        m.output(f"iq_mem_valid_{i}", mem_fire.wire)
+        m.output(f"{prefix}_iq_int_valid_{i}", int_fire.wire)
+        m.output(f"{prefix}_iq_fp_valid_{i}", fp_fire.wire)
+        m.output(f"{prefix}_iq_mem_valid_{i}", mem_fire.wire)
 
-        m.output(f"out_pdest_{i}", in_pdest[i].wire)
-        m.output(f"out_psrc1_{i}", in_psrc1[i].wire)
-        m.output(f"out_psrc2_{i}", in_psrc2[i].wire)
-        m.output(f"out_fu_type_{i}", in_fu_type[i].wire)
-        m.output(f"out_rob_idx_{i}", in_rob_idx[i].wire)
-        m.output(f"out_pc_{i}", in_pc[i].wire)
+        m.output(f"{prefix}_out_pdest_{i}", in_pdest[i].wire)
+        m.output(f"{prefix}_out_psrc1_{i}", in_psrc1[i].wire)
+        m.output(f"{prefix}_out_psrc2_{i}", in_psrc2[i].wire)
+        m.output(f"{prefix}_out_fu_type_{i}", in_fu_type[i].wire)
+        m.output(f"{prefix}_out_rob_idx_{i}", in_rob_idx[i].wire)
+        m.output(f"{prefix}_out_pc_{i}", in_pc[i].wire)
 
     # ── ROB enqueue outputs (matching rename interface) ──────────
     for i in range(dispatch_width):
         slot_fire = in_valid[i] & dispatch_fire
-        m.output(f"rob_enq_valid_{i}", slot_fire.wire)
-        m.output(f"rob_enq_pdest_{i}", in_pdest[i].wire)
-        m.output(f"rob_enq_old_pdest_{i}", in_old_pdest[i].wire)
-        m.output(f"rob_enq_pc_{i}", in_pc[i].wire)
+        m.output(f"{prefix}_rob_enq_valid_{i}", slot_fire.wire)
+        m.output(f"{prefix}_rob_enq_pdest_{i}", in_pdest[i].wire)
+        m.output(f"{prefix}_rob_enq_old_pdest_{i}", in_old_pdest[i].wire)
+        m.output(f"{prefix}_rob_enq_pc_{i}", in_pc[i].wire)
 
     # ── Count dispatched uops per IQ class ───────────────────────
     int_cnt = cas(domain, m.const(0, width=dp_cnt_w), cycle=0)
@@ -192,9 +203,12 @@ def build_dispatch(
                       cas(domain, (mem_cnt.wire + ONE_DP.wire)[0:dp_cnt_w], cycle=0),
                       mem_cnt)
 
-    m.output("int_dispatch_count", int_cnt.wire)
-    m.output("fp_dispatch_count", fp_cnt.wire)
-    m.output("mem_dispatch_count", mem_cnt.wire)
+    m.output(f"{prefix}_int_dispatch_count", int_cnt.wire)
+    _out["int_dispatch_count"] = int_cnt
+    m.output(f"{prefix}_fp_dispatch_count", fp_cnt.wire)
+    _out["fp_dispatch_count"] = fp_cnt
+    m.output(f"{prefix}_mem_dispatch_count", mem_cnt.wire)
+    _out["mem_dispatch_count"] = mem_cnt
 
     # ── Cycle 1: pipeline register for downstream latching ───────
     domain.next()
@@ -202,12 +216,13 @@ def build_dispatch(
     # Pipeline registers capturing dispatched uops for IQ write stage
     for i in range(dispatch_width):
         slot_fire = in_valid[i] & dispatch_fire
-        domain.cycle(slot_fire.wire, name=f"dp1_v_{i}")
-        domain.cycle(in_pdest[i].wire, name=f"dp1_pdest_{i}")
-        domain.cycle(in_psrc1[i].wire, name=f"dp1_psrc1_{i}")
-        domain.cycle(in_psrc2[i].wire, name=f"dp1_psrc2_{i}")
-        domain.cycle(in_fu_type[i].wire, name=f"dp1_fu_{i}")
-        domain.cycle(in_rob_idx[i].wire, name=f"dp1_rob_{i}")
+        domain.cycle(slot_fire.wire, name=f"{prefix}_dp1_v_{i}")
+        domain.cycle(in_pdest[i].wire, name=f"{prefix}_dp1_pdest_{i}")
+        domain.cycle(in_psrc1[i].wire, name=f"{prefix}_dp1_psrc1_{i}")
+        domain.cycle(in_psrc2[i].wire, name=f"{prefix}_dp1_psrc2_{i}")
+        domain.cycle(in_fu_type[i].wire, name=f"{prefix}_dp1_fu_{i}")
+        domain.cycle(in_rob_idx[i].wire, name=f"{prefix}_dp1_rob_{i}")
+    return _out
 
 
 build_dispatch.__pycircuit_name__ = "dispatch"

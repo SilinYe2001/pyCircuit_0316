@@ -58,6 +58,7 @@ def build_tage(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "tage",
     table_infos: list[tuple[int, int]] = SMALL_TAGE_TABLE_INFOS,
     base_size: int = BASE_TABLE_SIZE,
     ctr_width: int = CTR_WIDTH,
@@ -65,8 +66,12 @@ def build_tage(
     useful_width: int = USEFUL_WIDTH,
     pc_width: int = PC_WIDTH,
     num_br: int = 2,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """TAGE: tagged geometric history length branch direction predictor."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
     num_tables = len(table_infos)
     base_idx_w = max(1, math.ceil(math.log2(base_size)))
     ctr_max = (1 << ctr_width) - 1
@@ -78,26 +83,39 @@ def build_tage(
     hist_w = hist_len_max
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────────
-    s0_fire = cas(domain, m.input("s0_fire", width=1), cycle=0)
-    s0_pc = cas(domain, m.input("s0_pc", width=pc_width), cycle=0)
-    global_hist = cas(domain, m.input("global_hist", width=hist_w), cycle=0)
+    s0_fire = (_in["s0_fire"] if "s0_fire" in _in else
+        cas(domain, m.input(f"{prefix}_s0_fire", width=1), cycle=0))
+    s0_pc = (_in["s0_pc"] if "s0_pc" in _in else
+        cas(domain, m.input(f"{prefix}_s0_pc", width=pc_width), cycle=0))
+    global_hist = (_in["global_hist"] if "global_hist" in _in else
+        cas(domain, m.input(f"{prefix}_global_hist", width=hist_w), cycle=0))
 
-    train_valid = cas(domain, m.input("train_valid", width=1), cycle=0)
-    train_pc = cas(domain, m.input("train_pc", width=pc_width), cycle=0)
-    train_hist = cas(domain, m.input("train_hist", width=hist_w), cycle=0)
-    train_taken_0 = cas(domain, m.input("train_taken_0", width=1), cycle=0)
-    train_taken_1 = cas(domain, m.input("train_taken_1", width=1), cycle=0)
-    train_mispred_0 = cas(domain, m.input("train_mispred_0", width=1), cycle=0)
-    train_mispred_1 = cas(domain, m.input("train_mispred_1", width=1), cycle=0)
-    train_provider_id = cas(domain, m.input("train_provider_id", width=max(1, math.ceil(math.log2(num_tables + 1)))), cycle=0)
-    train_provider_valid = cas(domain, m.input("train_provider_valid", width=1), cycle=0)
-    train_alt_differs = cas(domain, m.input("train_alt_differs", width=1), cycle=0)
+    train_valid = (_in["train_valid"] if "train_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_train_valid", width=1), cycle=0))
+    train_pc = (_in["train_pc"] if "train_pc" in _in else
+        cas(domain, m.input(f"{prefix}_train_pc", width=pc_width), cycle=0))
+    train_hist = (_in["train_hist"] if "train_hist" in _in else
+        cas(domain, m.input(f"{prefix}_train_hist", width=hist_w), cycle=0))
+    train_taken_0 = (_in["train_taken_0"] if "train_taken_0" in _in else
+        cas(domain, m.input(f"{prefix}_train_taken_0", width=1), cycle=0))
+    train_taken_1 = (_in["train_taken_1"] if "train_taken_1" in _in else
+        cas(domain, m.input(f"{prefix}_train_taken_1", width=1), cycle=0))
+    train_mispred_0 = (_in["train_mispred_0"] if "train_mispred_0" in _in else
+        cas(domain, m.input(f"{prefix}_train_mispred_0", width=1), cycle=0))
+    train_mispred_1 = (_in["train_mispred_1"] if "train_mispred_1" in _in else
+        cas(domain, m.input(f"{prefix}_train_mispred_1", width=1), cycle=0))
+    train_provider_id = cas(domain, m.input(f"{prefix}_train_provider_id", width=max(1, math.ceil(math.log2(num_tables + 1)))), cycle=0)
+    train_provider_valid = (_in["train_provider_valid"] if "train_provider_valid" in _in else
+        cas(domain, m.input(f"{prefix}_train_provider_valid", width=1), cycle=0))
+    train_alt_differs = (_in["train_alt_differs"] if "train_alt_differs" in _in else
+        cas(domain, m.input(f"{prefix}_train_alt_differs", width=1), cycle=0))
 
     zero1 = cas(domain, m.const(0, width=1), cycle=0)
     one1 = cas(domain, m.const(1, width=1), cycle=0)
 
     # ── Base predictor (bimodal) ─────────────────────────────────────
-    base_ctr = [domain.state(width=ctr_width, reset_value=ctr_weak_taken, name=f"base_{i}")
+    base_ctr = [domain.state(width=ctr_width, reset_value=ctr_weak_taken, name=f"{prefix}_base_{i}")
                 for i in range(base_size)]
 
     base_idx = s0_pc[1:1 + base_idx_w]
@@ -115,10 +133,10 @@ def build_tage(
     tbl_entry_useful = []
 
     for t_idx, (tbl_size, _hist_len) in enumerate(table_infos):
-        ev = [domain.state(width=1, reset_value=0, name=f"t{t_idx}_v_{i}") for i in range(tbl_size)]
-        etag = [domain.state(width=tag_width, reset_value=0, name=f"t{t_idx}_tag_{i}") for i in range(tbl_size)]
-        ectr = [domain.state(width=ctr_width, reset_value=ctr_weak_taken, name=f"t{t_idx}_ctr_{i}") for i in range(tbl_size)]
-        euse = [domain.state(width=useful_width, reset_value=0, name=f"t{t_idx}_u_{i}") for i in range(tbl_size)]
+        ev = [domain.state(width=1, reset_value=0, name=f"{prefix}_t{t_idx}_v_{i}") for i in range(tbl_size)]
+        etag = [domain.state(width=tag_width, reset_value=0, name=f"{prefix}_t{t_idx}_tag_{i}") for i in range(tbl_size)]
+        ectr = [domain.state(width=ctr_width, reset_value=ctr_weak_taken, name=f"{prefix}_t{t_idx}_ctr_{i}") for i in range(tbl_size)]
+        euse = [domain.state(width=useful_width, reset_value=0, name=f"{prefix}_t{t_idx}_u_{i}") for i in range(tbl_size)]
         tbl_entry_valid.append(ev)
         tbl_entry_tag.append(etag)
         tbl_entry_ctr.append(ectr)
@@ -177,7 +195,7 @@ def build_tage(
         provider_id = mux(is_hit, cas(domain, m.const(t_idx + 1, width=prov_id_w), cycle=0), provider_id)
 
     # USE_ALT_ON_NA: use alt prediction when provider counter is weak
-    use_alt_r = domain.state(width=4, reset_value=8, name="use_alt_cnt")
+    use_alt_r = domain.state(width=4, reset_value=8, name=f"{prefix}_use_alt_cnt")
     use_alt_val = cas(domain, use_alt_r.wire, cycle=0)
     use_alt = use_alt_val[3:4]
 
@@ -189,14 +207,17 @@ def build_tage(
     final_pred = mux(do_use_alt, alt_pred, final_pred)
 
     pred_valid = s0_fire
-    m.output("pred_taken_0", (pred_valid & final_pred).wire)
-    m.output("pred_taken_1", zero1.wire)
-    m.output("provider_valid", provider_valid.wire)
-    m.output("provider_id", provider_id.wire)
-    m.output("alt_differs", cas(domain, (alt_pred.wire ^ provider_pred.wire)[0:1], cycle=0).wire)
+    m.output(f"{prefix}_pred_taken_0", (pred_valid & final_pred).wire)
+    m.output(f"{prefix}_pred_taken_1", zero1.wire)
+    _out["pred_taken_1"] = zero1
+    m.output(f"{prefix}_provider_valid", provider_valid.wire)
+    _out["provider_valid"] = provider_valid
+    m.output(f"{prefix}_provider_id", provider_id.wire)
+    _out["provider_id"] = provider_id
+    m.output(f"{prefix}_alt_differs", cas(domain, (alt_pred.wire ^ provider_pred.wire)[0:1], cycle=0).wire)
 
     # ── Tick counter for periodic useful reset ───────────────────────
-    tick_r = domain.state(width=8, reset_value=0, name="tick")
+    tick_r = domain.state(width=8, reset_value=0, name=f"{prefix}_tick")
     tick_val = cas(domain, tick_r.wire, cycle=0)
     tick_max = cas(domain, m.const(255, width=8), cycle=0)
     tick_overflow = tick_val == tick_max
@@ -295,6 +316,7 @@ def build_tage(
                     cas(domain, m.const(0, width=8), cycle=0),
                     cas(domain, (tick_val.wire + u(8, 1))[0:8], cycle=0))
     tick_r.set(mux(train_valid & train_mispred_0, next_tick, tick_val))
+    return _out
 
 
 build_tage.__pycircuit_name__ = "tage"

@@ -41,38 +41,60 @@ def build_store_queue(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
     *,
+    prefix: str = "stq",
     size: int = 56,
     addr_width: int = 36,
     data_width: int = XLEN,
     rob_idx_width: int = ROB_IDX_WIDTH,
-) -> None:
+    inputs: dict[str, CycleAwareSignal] | None = None,
+) -> dict[str, CycleAwareSignal]:
     """Store Queue: circular buffer for in-flight stores with forwarding."""
+    _in = inputs or {}
+    _out: dict[str, CycleAwareSignal] = {}
+
 
     idx_w = max(1, math.ceil(math.log2(size)))
     ptr_w = idx_w + 1
 
     # ── Cycle 0: Inputs ──────────────────────────────────────────────
 
-    flush = cas(domain, m.input("flush", width=1), cycle=0)
+    flush = (_in["flush"] if "flush" in _in else
 
-    enq_valid = cas(domain, m.input("enq_valid", width=1), cycle=0)
-    enq_rob_idx = cas(domain, m.input("enq_rob_idx", width=rob_idx_width), cycle=0)
+        cas(domain, m.input(f"{prefix}_flush", width=1), cycle=0))
 
-    write_valid = cas(domain, m.input("write_valid", width=1), cycle=0)
-    write_idx = cas(domain, m.input("write_idx", width=idx_w), cycle=0)
-    write_addr = cas(domain, m.input("write_addr", width=addr_width), cycle=0)
-    write_data = cas(domain, m.input("write_data", width=data_width), cycle=0)
+    enq_valid = (_in["enq_valid"] if "enq_valid" in _in else
 
-    commit_valid = cas(domain, m.input("commit_valid", width=1), cycle=0)
+        cas(domain, m.input(f"{prefix}_enq_valid", width=1), cycle=0))
+    enq_rob_idx = (_in["enq_rob_idx"] if "enq_rob_idx" in _in else
+        cas(domain, m.input(f"{prefix}_enq_rob_idx", width=rob_idx_width), cycle=0))
+
+    write_valid = (_in["write_valid"] if "write_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_write_valid", width=1), cycle=0))
+    write_idx = (_in["write_idx"] if "write_idx" in _in else
+        cas(domain, m.input(f"{prefix}_write_idx", width=idx_w), cycle=0))
+    write_addr = (_in["write_addr"] if "write_addr" in _in else
+        cas(domain, m.input(f"{prefix}_write_addr", width=addr_width), cycle=0))
+    write_data = (_in["write_data"] if "write_data" in _in else
+        cas(domain, m.input(f"{prefix}_write_data", width=data_width), cycle=0))
+
+    commit_valid = (_in["commit_valid"] if "commit_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_commit_valid", width=1), cycle=0))
 
     # Forwarding lookup from load pipeline
-    fwd_valid = cas(domain, m.input("fwd_valid", width=1), cycle=0)
-    fwd_addr = cas(domain, m.input("fwd_addr", width=addr_width), cycle=0)
+    fwd_valid = (_in["fwd_valid"] if "fwd_valid" in _in else
+        cas(domain, m.input(f"{prefix}_fwd_valid", width=1), cycle=0))
+    fwd_addr = (_in["fwd_addr"] if "fwd_addr" in _in else
+        cas(domain, m.input(f"{prefix}_fwd_addr", width=addr_width), cycle=0))
 
     # SBuffer drain handshake
-    sbuf_ready = cas(domain, m.input("sbuf_ready", width=1), cycle=0)
+    sbuf_ready = (_in["sbuf_ready"] if "sbuf_ready" in _in else
+        cas(domain, m.input(f"{prefix}_sbuf_ready", width=1), cycle=0))
 
-    redirect_valid = cas(domain, m.input("redirect_valid", width=1), cycle=0)
+    redirect_valid = (_in["redirect_valid"] if "redirect_valid" in _in else
+
+        cas(domain, m.input(f"{prefix}_redirect_valid", width=1), cycle=0))
 
     zero1 = cas(domain, m.const(0, width=1), cycle=0)
     one1 = cas(domain, m.const(1, width=1), cycle=0)
@@ -80,16 +102,16 @@ def build_store_queue(
 
     # ── Entry storage ─────────────────────────────────────────────────
 
-    e_valid = [domain.state(width=1, reset_value=0, name=f"sq_v_{i}") for i in range(size)]
-    e_addr_valid = [domain.state(width=1, reset_value=0, name=f"sq_av_{i}") for i in range(size)]
-    e_committed = [domain.state(width=1, reset_value=0, name=f"sq_cm_{i}") for i in range(size)]
-    e_addr = [domain.state(width=addr_width, reset_value=0, name=f"sq_a_{i}") for i in range(size)]
-    e_data = [domain.state(width=data_width, reset_value=0, name=f"sq_d_{i}") for i in range(size)]
-    e_rob = [domain.state(width=rob_idx_width, reset_value=0, name=f"sq_r_{i}") for i in range(size)]
+    e_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_sq_v_{i}") for i in range(size)]
+    e_addr_valid = [domain.state(width=1, reset_value=0, name=f"{prefix}_sq_av_{i}") for i in range(size)]
+    e_committed = [domain.state(width=1, reset_value=0, name=f"{prefix}_sq_cm_{i}") for i in range(size)]
+    e_addr = [domain.state(width=addr_width, reset_value=0, name=f"{prefix}_sq_a_{i}") for i in range(size)]
+    e_data = [domain.state(width=data_width, reset_value=0, name=f"{prefix}_sq_d_{i}") for i in range(size)]
+    e_rob = [domain.state(width=rob_idx_width, reset_value=0, name=f"{prefix}_sq_r_{i}") for i in range(size)]
 
-    enq_ptr_r = domain.state(width=ptr_w, reset_value=0, name="sq_enq")
-    deq_ptr_r = domain.state(width=ptr_w, reset_value=0, name="sq_deq")
-    commit_ptr_r = domain.state(width=ptr_w, reset_value=0, name="sq_cmt")
+    enq_ptr_r = domain.state(width=ptr_w, reset_value=0, name=f"{prefix}_sq_enq")
+    deq_ptr_r = domain.state(width=ptr_w, reset_value=0, name=f"{prefix}_sq_deq")
+    commit_ptr_r = domain.state(width=ptr_w, reset_value=0, name=f"{prefix}_sq_cmt")
 
     enq_ptr = cas(domain, enq_ptr_r.wire, cycle=0)
     deq_ptr = cas(domain, deq_ptr_r.wire, cycle=0)
@@ -145,14 +167,22 @@ def build_store_queue(
 
     drain_fire = drain_head_valid & sbuf_ready
 
-    m.output("fwd_hit", fwd_hit.wire)
-    m.output("fwd_data", fwd_data_out.wire)
-    m.output("can_enqueue", can_enq.wire)
-    m.output("enq_idx", enq_idx.wire)
-    m.output("count", count.wire)
-    m.output("sbuf_valid", drain_head_valid.wire)
-    m.output("sbuf_addr", drain_head_addr.wire)
-    m.output("sbuf_data", drain_head_data.wire)
+    m.output(f"{prefix}_fwd_hit", fwd_hit.wire)
+    _out["fwd_hit"] = fwd_hit
+    m.output(f"{prefix}_fwd_data", fwd_data_out.wire)
+    _out["fwd_data"] = fwd_data_out
+    m.output(f"{prefix}_can_enqueue", can_enq.wire)
+    _out["can_enqueue"] = can_enq
+    m.output(f"{prefix}_enq_idx", enq_idx.wire)
+    _out["enq_idx"] = enq_idx
+    m.output(f"{prefix}_count", count.wire)
+    _out["count"] = count
+    m.output(f"{prefix}_sbuf_valid", drain_head_valid.wire)
+    _out["sbuf_valid"] = drain_head_valid
+    m.output(f"{prefix}_sbuf_addr", drain_head_addr.wire)
+    _out["sbuf_addr"] = drain_head_addr
+    m.output(f"{prefix}_sbuf_data", drain_head_data.wire)
+    _out["sbuf_data"] = drain_head_data
 
     # ── domain.next() → Cycle 1: state updates ──────────────────────
     domain.next()
@@ -207,6 +237,7 @@ def build_store_queue(
     # Flush
     for j in range(size):
         e_valid[j].set(zero1, when=flush)
+    return _out
 
 
 build_store_queue.__pycircuit_name__ = "store_queue"

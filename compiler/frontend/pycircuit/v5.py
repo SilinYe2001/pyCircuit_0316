@@ -77,7 +77,9 @@ class CycleAwareDomain:
         return self._m
 
     def create_reset(self) -> Wire:
-        return Wire(self._m, self._cd.rst)
+        """Active-high reset as **i1** for mux / boolean logic (via ``pyc.reset_active``)."""
+        ra = self._m.reset_active(self._cd.rst)
+        return Wire(self._m, ra)
 
     def create_signal(self, port_name: str, *, width: int) -> Wire:
         return self._m.input(str(port_name), width=int(width))

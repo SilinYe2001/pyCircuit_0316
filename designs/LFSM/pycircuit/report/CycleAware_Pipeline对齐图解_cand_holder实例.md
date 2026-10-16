@@ -66,16 +66,61 @@ flowchart TD
 是跨拍寄存**——两条对齐词汇在同一个模块里各出现一次，对照阅读即可建立
 直觉。
 
-图 3 · cand_holder 结构与两条边的对齐契约：
+图 3 · cand_holder 硬件原理图（全部真实信号名 + 位宽；与
+[toy 教程](V6_CycleAware入门_玩具流水线与LFSM对照.md) §2 同款画法）：
 
 ```mermaid
 flowchart LR
-    ASM["assembler<br/>view_next_*（当拍组合）"] -->|"边2：同拍 bypass（允许）"| CAP["捕获判定<br/>fresh_cap / repl / clr<br/>h_*_nxt（当拍组合）"]
-    CAP -->|"拍末提交<br/>domain.next() 之后 <<="| H["h_* 寄存器（DFF）<br/>Q 端 cycle 0 可读"]
-    H -->|"边3：严格流水（GAP-06）"| OUTS["outs.cand_*<br/>只含 held 快照"]
-    OUTS --> ARB["arbiter<br/>（当拍组合消费）"]
-    ASM -.->|"这条路径不存在 = 零 fresh 旁路"| OUTS
+    VNF["view_next_formable (i1)"]
+    VNI["view_next_inst (i4)"]
+    VNR["view_next_rd_mem_id (i14)"]
+    VNA["view_next_advance (i6)"]
+    LP["load_ptr (i8)"]
+    LPP["load_ptr_post (i8)"]
+    FC["fire_consume (i1)<br/>← arbiter"]
+
+    CAP["捕获判定 fresh_cap / repl / clr / set_<br/>+ h_*_nxt mux 链<br/>comb @cycle0"]
+
+    HV["h_v (i1)<br/>DFF（推导）"]
+    HID["h_ins (i4) · h_rid (i14) · h_seq (i13)<br/>DFF ×3（推导）"]
+    HPA["h_pb (i8) · h_pa (i6)<br/>DFF ×2（推导）"]
+    CS["cseq (i13)<br/>DFF（推导）"]
+
+    OV["cand_valid (i1)"]
+    OID["cand_inst (i4)<br/>cand_rd_mem_id (i14)<br/>cand_seq (i13)"]
+    OPA["cand_planned_base (i8)<br/>cand_planned_advance (i6)"]
+    ARB["arbiter<br/>comb @cycle0"]
+
+    VNF -->|"边2 同拍 bypass"| CAP
+    VNI --> CAP
+    VNR --> CAP
+    VNA --> CAP
+    LP --> CAP
+    LPP --> CAP
+    FC --> CAP
+
+    CAP -->|"h_v_nxt<br/>拍末 <<="| HV
+    CAP -->|"h_ins_nxt / h_rid_nxt / h_seq_nxt<br/>拍末 <<="| HID
+    CAP -->|"h_pb_nxt / h_pa_nxt<br/>拍末 <<="| HPA
+    CAP -->|"cseq_nxt = cseq+1<br/>拍末 <<="| CS
+
+    HV -->|"边3 严格流水<br/>Q 端直出"| OV
+    HID --> OID
+    HPA --> OPA
+
+    OV --> ARB
+    OID --> ARB
+    OPA --> ARB
+
+    HV -.->|"h_v Q 当拍回读（comb 反馈）"| CAP
+    CS -.->|"cseq Q → h_seq_nxt（comb 反馈）"| CAP
 ```
+
+读图要点：从左侧 assembler 输入到右侧 `cand_*` 输出之间**没有任何直连
+线**——"零 fresh 旁路"在原理图上就是那根不存在的线：输出全部接在 DFF
+Q 端上（对应 outs 字典 6 个键全是 `h_*`，§4①）。7 个 DFF =
+[cand_holder.py:41-47](../lfsm/cand_holder.py#L41) 的 7 个 `domain.signal()`
+声明；虚线反馈 = 组合穿透寄存器 Q 端当拍回读（与 toy `dbg_prod` 同型）。
 
 规格契约写在 docstring 里（一句话：仲裁只看 held 快照，fresh 次拍起参与）：
 
@@ -158,19 +203,21 @@ second held cycle ..."""
 
 ## 5. 逐拍时序：+1 对齐如何发生
 
-图 4 · 形成拍 / 参与拍 逐拍过程：
+图 4 · 逐拍信号视图（与 [toy 教程](V6_CycleAware入门_玩具流水线与LFSM对照.md) §4
+同款表格；取 T-050/T-053 实值：inst=2 / rid=5 / adv=1 / load_ptr=10）：
 
-```text
-拍         组合求值（沿前，cycle 0 语义）              outs.cand_*        arbiter 视角
-─────────  ─────────────────────────────────────────  ────────────────  ─────────────────────
-T (形成拍)  view_next_formable=1；捕获判定当拍算出     旧值（上一候选/     看不到新候选
-            h_*_nxt=新候选；outs 仍是旧 h_* Q 端        或无效）           ← 对齐保证
-─────────  时钟沿：h_* <<= h_*_nxt（cycle 1 提交）  ────────────────────────────────────────
-T+1(参与拍) held 快照 = 新候选                         新候选              首次看到：split 候选
-                                                                           可当拍 fire；alloc
-                                                                           候选按 A-004 v4 待
-                                                                           dest_ok 回答
-```
+| cycle | `view_next_formable`<br/>（驱动） | `fresh_cap`<br/>（comb @cycle0） | `h_v` Q<br/>→ `cand_valid` | `h_ins` / `h_rid` Q<br/>→ `cand_inst` / `cand_rd_mem_id` | `h_pb` / `h_pa` Q<br/>→ `cand_planned_base` / `cand_planned_advance` | 事件 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| T | 1（inst=2, rid=5,<br/>adv=1, lp=10） | **1** | 0 | – | – | 形成拍：捕获当拍算出；outs 仍是旧 Q 端，arbiter 看不到 ← 对齐保证 |
+| T+1 | 0 | 0 | **1** | **2 / 5** | **10 / 1** | 参与拍：held 快照对 arbiter 可见（split 可当拍 fire；alloc 按 A-004 v4 待 dest_ok） |
+| T+2…T+4 | 0 | 0 | 1（保持） | 2 / 5（保持） | 10 / 1（保持） | grant 被扣留 N 拍，held 稳定（T-053） |
+
+读表要点：
+
+- cycle T：`fresh_cap=1` 当拍可见 —— **同拍 = 纯组合**（边2）；
+- cycle T+1：`h_*` Q 端出现上拍捕获值 —— **跨拍 = 寄存提交，次拍可见**（边3）；
+- T+2 起：无 fire 时 Q 端保持不变 —— 保持不靠守卫逻辑，靠次态 mux 默认
+  回读 Q（`h_v_nxt = mux(clr, 0, mux(set_, 1, h_v))` 的 else 分支）。
 
 **代码里没有任何一行"打一拍"——+1 级流水是"读 cycle 0 / 写 cycle 1"的
 周期差推导结果。** 若改成同拍直通（边2 式），把 outs 的键换成当拍组合表达式
@@ -228,14 +275,15 @@ pipeline 级数从源码数出来即所得，编译器不会"帮忙"插拍。
 cand_holder 的 +1 级（边3）与 req_sched 2-slot 发送队列的 +1 级（发送段）
 合成全链恒定相移：
 
-图 5 · 三拍分段（T 形成 / T+1 grant / T+2 issue）：
+图 5 · 三拍分段全链（T 形成 / T+1 grant / T+2 issue，全部真实信号名）：
 
 ```mermaid
 flowchart LR
-    TOK["view 形成 T<br/>（asm 当拍组合）"] -->|"边2 同拍"| CAP["cand 捕获<br/>拍末 T"]
-    CAP -->|"held Q T+1<br/>（边3 +1）"| FIRE["仲裁 fire T+1"]
-    FIRE -->|"req_sched push<br/>拍末 T+1"| RQP["2-slot 发送队列"]
-    RQP -->|"front pop T+2<br/>（发送段 +1）"| MEM["o_mem_req_valid T+2"]
+    VN["assembler<br/>view_next_formable / view_next_inst /<br/>view_next_rd_mem_id / view_next_advance<br/>comb @cycle0 · 形成拍 T"] -->|"边2 同拍 bypass"| CHD["cand_holder 捕获判定<br/>fresh_cap / repl → h_*_nxt<br/>comb @cycle0"]
+    CHD -->|"拍末 <<=（T 末沿）"| HQ["h_v / h_ins / h_rid /<br/>h_seq / h_pb / h_pa<br/>DFF（推导）"]
+    HQ -->|"边3 +1：cand_valid / cand_inst /<br/>cand_rd_mem_id / cand_planned_*<br/>Q 端 @T+1"| ARB["arbiter<br/>fire / grant_lane / fire_consume<br/>comb @cycle0 · grant 拍 T+1"]
+    ARB -->|"拍末 push：s_f / s_v / cnt <<=（T+1 末沿）"| RQP["req_sched 2-slot<br/>cnt / pr / pw DFF（推导）<br/>发送段 +1"]
+    RQP -->|"front Q 且 i_shared_mem_ready ⇒ pop<br/>comb @cycle0 · issue 拍 T+2"| MEM["o_mem_req_valid (i1)<br/>o_mem_req_* payload /<br/>o_load_ptr_update_*"]
 ```
 
 [TEST_PLAN](../docs/TEST_PLAN.md) §0.4 原文："每条 candidate 链首相对 golden

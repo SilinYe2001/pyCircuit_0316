@@ -20,7 +20,7 @@ flowchart LR
 - **单一 IR、双后端、同一份测试台**：一次 build 生成 C++ 仿真器（`pyc_tb`，快）和 Verilator 仿真器（`Vtb_*`），它们执行同一组 `expect`。
 - **日常功能验证只跑 C++**：`expect` 全过 = 退出码 0；Verilator 只是确认双后端一致的**签收**，不替代功能验证。
 - **波形默认不写**：C++ 路设 `PYC_TRACE_DIR`；要让 Verilator 也出 VCD 用 `--trace-config`。
-- 从规格文档起步的正式项目，完整设计与验证流程见 [10 步实现法](../pycircuit_implementation_method.zh.md)。
+- 从规格文档起步的正式项目，完整设计与验证流程见 [10 步实现法](../pycircuit_implementation_method.zh.md)，使用导读（怎么驱动/每步审什么/产物作用）见 [十步实现法使用指南](ten_steps.md)。
 
 ## 2. 开发步骤总览（新项目的完整时间线）
 
@@ -42,7 +42,7 @@ flowchart TD
 | 步骤 | 干什么 | 参考文档 |
 |---|---|---|
 | 0 环境就绪 | 建工具链，跑通 counter 示例（一次性） | [命令参考 §1–3](commands.md) |
-| 1 定义项目 | 从规格走 10 步法（推荐），或小设计直接说接口 | [10 步实现法](../pycircuit_implementation_method.zh.md) · [XiangShan 实例](../../designs/XiangShan-pyc/docs/) · [tb_counter.py](../../designs/examples/counter/tb_counter.py) |
+| 1 定义项目 | 从规格走 10 步法（推荐），或小设计直接说接口 | [10 步实现法](../pycircuit_implementation_method.zh.md) · [十步法使用指南](ten_steps.md) · [XiangShan 实例](../../designs/XiangShan-pyc/docs/) · [tb_counter.py](../../designs/examples/counter/tb_counter.py) |
 | 2 写测试台，定验收标准 | 对 Agent 说清**四样**：接口契约、逐周期行为、覆盖清单（F-xxx/T-xxx）、正确性参照（黄金参考＞规范表＞SVA＞随机+不变量）。激励/期望都是**构建时常数**；采样 `pre`=TICK-OBS / `post`=XFER-OBS | [TESTBENCH.md](../TESTBENCH.md) · [V6 Spec §9 仿真与测试](../v6_PyCircuit_Specification.md) · [语法手册 §12](primitives.md) · [Step 8](../pycircuit_implementation_method.zh.md) · [tb_bru.py 黄金模型范例](../../designs/XiangShan-pyc/backend/exu/tb_bru.py) |
 | 3 实现与迭代 | 先搭骨架（空壳+复位/空闲测试），再逐特性加代码，只跑 C++ 仿真；每加特性重跑全部已有测试 | [命令参考 §4](commands.md) · [Step 9 增量纪律](../pycircuit_implementation_method.zh.md) |
 | 4 迭代中看波形 | `PYC_TRACE_DIR` 开 VCD 定位；GTKWave 交互查看 | [命令参考 §5](commands.md) · [语法手册 §13](primitives.md) |
@@ -55,7 +55,7 @@ flowchart TD
 |---|---|
 | 首次搭建 | 构建工具链，跑通 counter 双后端仿真，生成波形 |
 | 新建项目 | 在 designs/examples 下新建 my_design 模块（说清端口/位宽/逐周期行为），配 @testbench，跑 C++ 仿真 |
-| 从规格开始 | 按仓库 10 步实现法做：规格转 Markdown → 端口/特性清单 → 测试计划 → 增量实现 |
+| 从规格开始 | 按仓库 10 步实现法做：规格转 Markdown → 端口/特性清单 → 测试计划 → 增量实现，每步交付物写完先给我审（详见[十步法使用指南](ten_steps.md)） |
 | 写测试台 | 帮我给 my_mod 写测试台：接口 clk/rst/enable/count[7:0]；复位 2 拍后 enable=1 时 count 每拍加 1 溢出回 0；覆盖复位值/计数 5 拍/保持/255→0；先跑 C++ smoke |
 | 建骨架 | 帮我把 my_design 骨架搭起来：端口齐全的空壳设计 + 复位和空闲测试，先跑 C++ 冒烟 |
 | 日常迭代 | 跑一下 counter 的 C++ 仿真，确认 expect 全过 |
@@ -70,7 +70,7 @@ flowchart TD
 
 - 具体命令、产物路径、环境变量、故障排查：[Agent 命令参考](commands.md)
 - 写代码/审代码时查 primitive：[语法查找手册](primitives.md)
-- 新项目正规实现路径：[10 步实现法](../pycircuit_implementation_method.zh.md)
+- 新项目正规实现路径：[10 步实现法](../pycircuit_implementation_method.zh.md) · 使用导读：[十步实现法使用指南](ten_steps.md)
 - 报错解读：[DIAGNOSTICS.md](../DIAGNOSTICS.md)
 - 本仓库约定：[AGENTS.md](../../AGENTS.md)
 - pyc4.0 设计契约：[pyc4.0-decisions.md](../rfcs/pyc4.0-decisions.md)

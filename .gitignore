@@ -231,6 +231,7 @@ __marimo__/
 
 # pyCircuit generated outputs (local artifacts only; never checked in)
 .pycircuit_out/
+.tb_builds/
 /examples/
 janus/
 **/generated/

@@ -1,0 +1,1540 @@
+{
+ "schema": {
+  "name": "lfsm_golden_occupancy_summary",
+  "version": 1
+ },
+ "generated_by": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/tools/dump_lfsm_golden.py",
+ "depth_selection": {
+  "A": 16,
+  "B": 128,
+  "AMX": 8,
+  "C_FIFO": 8,
+  "BMX_WINDOWS": 2
+ },
+ "a002_reference": {
+  "TC02": {
+   "B": 46
+  },
+  "TC08": {
+   "A": 10
+  },
+  "TC15": {
+   "AMX": 6,
+   "BMX": 34
+  },
+  "TC17": {
+   "B": 64
+  },
+  "X-WORST-A": {
+   "A": 60
+  },
+  "X-WORST-AMX": {
+   "AMX": 61
+  },
+  "X-WORST-B-m16": {
+   "B": 513
+  }
+ },
+ "cases": {
+  "TC02": {
+   "id": "TC02",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/TC02.json",
+   "final_cycle": 135,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      3,
+      25
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      46,
+      64
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      46,
+      26
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      45,
+      65
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 128,
+    "register_requests": 16,
+    "execute": 64
+   }
+  },
+  "TC08": {
+   "id": "TC08",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/TC08.json",
+   "final_cycle": 331,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      10,
+      113
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      33,
+      91
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      166,
+      122
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      31,
+      91
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 320,
+    "register_requests": 16,
+    "execute": 128
+   }
+  },
+  "TC13": {
+   "id": "TC13",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/TC13.json",
+   "final_cycle": 56,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      16,
+      18
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      28,
+      6
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      17,
+      19
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 52,
+    "register_requests": 9,
+    "execute": 18
+   }
+  },
+  "TC15": {
+   "id": "TC15",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/TC15.json",
+   "final_cycle": 238,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      6,
+      29
+     ],
+     "AMX": [
+      6,
+      85
+     ],
+     "B": [
+      34,
+      94
+     ],
+     "BMX": [
+      34,
+      94
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      1,
+      1
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      1,
+      1
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      107,
+      30
+     ],
+     "AMX": [
+      16,
+      86
+     ],
+     "B": [
+      33,
+      95
+     ],
+     "BMX": [
+      8,
+      95
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      3,
+      10
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     1,
+     2
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 24,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 24
+   },
+   "counts": {
+    "mem_requests": 222,
+    "register_requests": 20,
+    "execute": 100
+   }
+  },
+  "TC17": {
+   "id": "TC17",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/TC17.json",
+   "final_cycle": 290,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      5,
+      49
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      64,
+      160
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      88,
+      58
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      63,
+      161
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 256,
+    "register_requests": 64,
+    "execute": 128
+   }
+  },
+  "TC-B2B-01": {
+   "id": "TC-B2B-01",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/TC-B2B-01.json",
+   "final_cycle": 71,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      16,
+      19
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      15,
+      19
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      15,
+      34
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 64,
+    "register_requests": 32,
+    "execute": 32
+   }
+  },
+  "TC-B2B-02": {
+   "id": "TC-B2B-02",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/TC-B2B-02.json",
+   "final_cycle": 135,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      2,
+      52
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      31,
+      66
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      31,
+      53
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      30,
+      68
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 128,
+    "register_requests": 64,
+    "execute": 64
+   }
+  },
+  "X-MAXK": {
+   "id": "X-MAXK",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-MAXK.json",
+   "final_cycle": 1293,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      39,
+      505
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      160,
+      480
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      622,
+      506
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      159,
+      481
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 1280,
+    "register_requests": 16,
+    "execute": 512
+   }
+  },
+  "X-HIF4": {
+   "id": "X-HIF4",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-HIF4.json",
+   "final_cycle": 522,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      8,
+      193
+     ],
+     "AMX": [
+      8,
+      193
+     ],
+     "B": [
+      68,
+      168
+     ],
+     "BMX": [
+      68,
+      168
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      1,
+      1
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      1,
+      1
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      127,
+      194
+     ],
+     "AMX": [
+      60,
+      194
+     ],
+     "B": [
+      71,
+      169
+     ],
+     "BMX": [
+      44,
+      169
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     1,
+     2
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 32,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 32
+   },
+   "counts": {
+    "mem_requests": 513,
+    "register_requests": 34,
+    "execute": 162
+   }
+  },
+  "X-MXFP4": {
+   "id": "X-MXFP4",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-MXFP4.json",
+   "final_cycle": 293,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      7,
+      121
+     ],
+     "AMX": [
+      6,
+      121
+     ],
+     "B": [
+      40,
+      136
+     ],
+     "BMX": [
+      40,
+      136
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      1,
+      1
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      1,
+      1
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      110,
+      122
+     ],
+     "AMX": [
+      20,
+      122
+     ],
+     "B": [
+      39,
+      137
+     ],
+     "BMX": [
+      12,
+      137
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      1,
+      2
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     1,
+     2
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 32,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 32
+   },
+   "counts": {
+    "mem_requests": 282,
+    "register_requests": 24,
+    "execute": 72
+   }
+  },
+  "X-MAXN": {
+   "id": "X-MAXN",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-MAXN.json",
+   "final_cycle": 1133,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      5,
+      49
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      64,
+      160
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      88,
+      58
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      63,
+      161
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 640,
+    "register_requests": 256,
+    "execute": 1024
+   }
+  },
+  "X-WORST-A": {
+   "id": "X-WORST-A",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-WORST-A.json",
+   "final_cycle": 1095,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      60,
+      64
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      28,
+      60
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      967,
+      65
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      55,
+      61
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      0,
+      null
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 1,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 1
+   },
+   "counts": {
+    "mem_requests": 1088,
+    "register_requests": 2,
+    "execute": 64
+   }
+  },
+  "X-WORST-AMX": {
+   "id": "X-WORST-AMX",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-WORST-AMX.json",
+   "final_cycle": 1255,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      61,
+      64
+     ],
+     "AMX": [
+      61,
+      64
+     ],
+     "B": [
+      29,
+      60
+     ],
+     "BMX": [
+      29,
+      60
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      1,
+      1
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      1,
+      1
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      975,
+      65
+     ],
+     "AMX": [
+      480,
+      65
+     ],
+     "B": [
+      57,
+      61
+     ],
+     "BMX": [
+      112,
+      61
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      0,
+      null
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 4,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 4
+   },
+   "counts": {
+    "mem_requests": 1248,
+    "register_requests": 2,
+    "execute": 64
+   }
+  },
+  "X-WORST-B-m16": {
+   "id": "X-WORST-B-m16",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-WORST-B-m16.json",
+   "final_cycle": 4615,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      8,
+      1081
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      513,
+      3643
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      127,
+      1082
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      511,
+      3643
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 4608,
+    "register_requests": 128,
+    "execute": 4096
+   }
+  },
+  "X-WORST-B-m32": {
+   "id": "X-WORST-B-m32",
+   "status": "PASS",
+   "error": null,
+   "vector": "/home/lewis/pyCircuit_0316/designs/LFSM/pycircuit/vectors/X-WORST-B-m32.json",
+   "final_cycle": 1581,
+   "occupancy_max": {
+    "pending": {
+     "A": [
+      24,
+      953
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      192,
+      928
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "rdq": {
+     "A": [
+      1,
+      1
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      1
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_blocks": {
+     "A": [
+      383,
+      954
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      191,
+      929
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "asm_pending": {
+     "A": [
+      0,
+      null
+     ],
+     "AMX": [
+      0,
+      null
+     ],
+     "B": [
+      1,
+      2
+     ],
+     "BMX": [
+      0,
+      null
+     ]
+    },
+    "bmx_windows": [
+     0,
+     null
+    ],
+    "c_fifo": [
+     1,
+     1
+    ]
+   },
+   "fire_meta_max": {
+    "writes": 2,
+    "touched_ranges": 1,
+    "confirmed_ranges": 1,
+    "advance": 2
+   },
+   "counts": {
+    "mem_requests": 1536,
+    "register_requests": 32,
+    "execute": 1024
+   }
+  }
+ }
+}
